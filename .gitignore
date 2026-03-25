@@ -1,0 +1,35 @@
+# Docker image exports — za duże na git
+*.tar
+dockermind-offline.tar.gz
+offline-package/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Środowisko
+.env
+!.env.example
+.venv/
+venv/
+
+# Baza danych
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# Logi
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

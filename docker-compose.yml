@@ -1,0 +1,50 @@
+services:
+  dockermind-web:
+    build: ./central
+    image: dockermind-web:1.0
+    container_name: dockermind-web
+    restart: unless-stopped
+    extra_hosts:
+      - "ai.mgmt.pl:192.168.10.57"
+    environment:
+      - AI_BASE_URL=https://ai.mgmt.pl/llama3/v1
+      - AI_MODEL=llama3
+      - CT_USERNAME=${CT_USERNAME}
+      - CT_PASSWORD=${CT_PASSWORD}
+      - CT_SECRET_KEY=${CT_SECRET_KEY}
+      - AGENT_SECRET_TOKEN=${AGENT_SECRET_TOKEN}
+      - CT_PORT=8080
+    volumes:
+      - dockermind_data:/app/data
+    expose:
+      - "8080"
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  nginx:
+    image: nginx:alpine
+    container_name: dockermind-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - dockermind-web
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETUID
+      - SETGID
+
+volumes:
+  dockermind_data: {}

@@ -1,0 +1,1280 @@
+<!DOCTYPE html>
+<html lang="pl" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🐳 DockerMind</title>
+
+<!-- All assets are served locally — baked into Docker image at build time -->
+<script src="/static/tailwind.js"></script>
+<script>tailwind.config = { darkMode: 'class' }</script>
+<link  rel="stylesheet" href="/static/highlight-dark.min.css">
+<script src="/static/chart.min.js"></script>
+<script src="/static/highlight.min.js"></script>
+<script src="/static/highlight-yaml.min.js"></script>
+<script defer src="/static/alpine.min.js"></script>
+
+<style>
+  [x-cloak] { display: none !important; }
+  html, body { height: 100%; background: #030712; }
+
+  /* Thin scrollbars everywhere */
+  ::-webkit-scrollbar       { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+
+  /* Log / analysis monospace */
+  .mono { font-family: 'Courier New', Courier, monospace; font-size: 12px; line-height: 1.65; }
+
+  /* Smooth progress bars */
+  .bar { transition: width 0.7s ease; }
+
+  /* Pulsing status dot */
+  @keyframes pdot { 0%,100%{opacity:1} 50%{opacity:.25} }
+  .pdot { animation: pdot 2s infinite; }
+
+  /* Highlight filter match */
+  mark.hi { background: #ca8a04; color: #000; border-radius: 2px; padding: 0 2px; }
+
+  /* Rendered AI analysis */
+  .analysis h3 { color:#67e8f9; font-size:1rem; font-weight:700;
+    margin: 1.25rem 0 .5rem; padding-bottom:.25rem;
+    border-bottom: 1px solid #1f2937; }
+  .analysis code { background:#111827; color:#4ade80; padding:1px 4px;
+    border-radius:3px; font-size:.8em; font-family:monospace; }
+  .analysis pre  { background:#000; border:1px solid #374151; border-radius:.5rem;
+    padding:.75rem; overflow-x:auto; margin:.5rem 0; position:relative; }
+  .analysis pre code { background:none; color:#4ade80; font-size:.78em; padding:0; }
+  .analysis strong { color:#f9fafb; font-weight:600; }
+  .analysis li { margin-left:1rem; color:#d1d5db; }
+  .copy-btn { position:absolute; top:.4rem; right:.4rem;
+    background:#374151; border:none; color:#9ca3af; font-size:.7rem;
+    padding:2px 7px; border-radius:4px; cursor:pointer; opacity:0; transition:opacity .2s; }
+  .analysis pre:hover .copy-btn { opacity:1; }
+</style>
+</head>
+
+<body class="dark bg-gray-950 text-gray-200 h-full" x-data="app()" x-cloak>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     LOGIN MODAL
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div x-show="!loggedIn"
+     class="fixed inset-0 bg-gray-950 flex items-center justify-center z-50">
+  <div class="bg-gray-900 border border-gray-700 rounded-2xl p-8 w-full max-w-sm shadow-2xl">
+    <div class="text-center mb-7">
+      <div class="text-5xl mb-3">🐳</div>
+      <h1 class="text-2xl font-bold text-white tracking-tight">DockerMind</h1>
+      <p class="text-gray-500 text-sm mt-1">AI-powered Docker monitoring</p>
+    </div>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Użytkownik</label>
+        <input type="text" x-model="lf.u" @keydown.enter="login()"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5
+                 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Hasło</label>
+        <input type="password" x-model="lf.p" @keydown.enter="login()"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5
+                 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
+      </div>
+      <div x-show="lf.err"
+           class="bg-red-950/60 border border-red-800 rounded-lg px-3 py-2 text-red-300 text-sm"
+           x-text="lf.err"></div>
+      <button @click="login()"
+        class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2.5
+               rounded-lg transition-colors active:scale-95">
+        Zaloguj się
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MAIN APP
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div x-show="loggedIn" class="flex h-screen overflow-hidden">
+
+  <!-- ─── SIDEBAR ──────────────────────────────────────────────────────────── -->
+  <aside class="w-64 bg-gray-900 border-r border-gray-800 flex flex-col flex-shrink-0">
+
+    <!-- Logo -->
+    <div class="px-4 py-4 border-b border-gray-800 flex-shrink-0">
+      <div class="flex items-center gap-2.5">
+        <span class="text-3xl leading-none">🐳</span>
+        <div>
+          <div class="font-bold text-white text-lg leading-tight">DockerMind</div>
+          <div class="text-gray-600 text-xs">v1.0</div>
+        </div>
+      </div>
+      <!-- WS indicator -->
+      <div class="flex items-center gap-1.5 mt-2.5">
+        <div :class="wsOk ? 'bg-green-400 pdot' : 'bg-red-500'"
+             class="w-2 h-2 rounded-full flex-shrink-0"></div>
+        <span class="text-xs text-gray-500"
+              x-text="wsOk ? 'WebSocket aktywny' : 'Łączenie...'"></span>
+      </div>
+    </div>
+
+    <!-- Server list -->
+    <div class="flex-1 overflow-y-auto py-3 px-3">
+      <div class="text-xs text-gray-600 uppercase tracking-widest mb-2 px-1">Serwery</div>
+
+      <template x-if="servers.length === 0">
+        <div class="text-center text-gray-700 text-sm py-6">
+          Brak połączonych agentów
+        </div>
+      </template>
+
+      <template x-for="srv in sortedServers" :key="srv.agent_id">
+        <div @click="selectSrv(srv.agent_id)"
+          :class="selSrvId === srv.agent_id
+            ? 'bg-gray-800 border-gray-600'
+            : 'border-transparent hover:bg-gray-800/50'"
+          class="border rounded-xl p-3 mb-1.5 cursor-pointer transition-all duration-150">
+
+          <div class="flex items-center gap-2">
+            <div :class="srvDot(srv)" class="w-2.5 h-2.5 rounded-full flex-shrink-0"></div>
+            <div class="flex-1 min-w-0">
+              <div class="font-semibold text-white text-sm truncate"
+                   x-text="srv.info?.agent_name || srv.agent_id"></div>
+              <div class="text-gray-500 text-xs truncate"
+                   x-text="srv.info?.ip || ''"></div>
+            </div>
+          </div>
+
+          <div class="flex justify-between mt-1.5 text-xs text-gray-500">
+            <span x-text="`${(srv.containers||[]).length} kontenerów`"></span>
+            <span x-text="ago(srv.last_seen)"></span>
+          </div>
+
+          <template x-if="srvWarn(srv)">
+            <div class="text-yellow-500 text-xs mt-1">⚠ Nieoczekiwane restarty</div>
+          </template>
+        </div>
+      </template>
+    </div>
+
+    <!-- User footer -->
+    <div class="px-4 py-3 border-t border-gray-800 flex-shrink-0">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="text-xs text-gray-600">Zalogowany</div>
+          <div class="text-sm text-gray-300" x-text="me"></div>
+        </div>
+        <button @click="logout()"
+          class="text-xs text-gray-500 hover:text-red-400 transition-colors px-2 py-1 rounded">
+          Wyloguj
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ─── MAIN PANEL ────────────────────────────────────────────────────────── -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+
+    <!-- TOP BAR -->
+    <header class="bg-gray-900 border-b border-gray-800 px-5 py-2.5 flex-shrink-0">
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+
+        <div class="flex items-center gap-1.5">
+          <span class="text-gray-500">Serwery:</span>
+          <span class="text-green-400 font-medium" x-text="`${gs.sOn} online`"></span>
+          <span class="text-gray-700">/</span>
+          <span class="text-red-400" x-text="`${gs.sOff} offline`"></span>
+        </div>
+
+        <div class="w-px h-4 bg-gray-800"></div>
+
+        <div class="flex items-center gap-1.5">
+          <span class="text-gray-500">Kontenery:</span>
+          <span class="text-green-400" x-text="`${gs.cRun} uruch.`"></span>
+          <span class="text-gray-700">/</span>
+          <span class="text-red-400" x-text="`${gs.cStop} zat.`"></span>
+          <template x-if="gs.cUnhealthy > 0">
+            <span class="text-yellow-400 font-medium" x-text="`/ ${gs.cUnhealthy} ⚠`"></span>
+          </template>
+        </div>
+
+        <div class="w-px h-4 bg-gray-800"></div>
+
+        <div class="flex items-center gap-1.5">
+          <span class="text-gray-500">AI:</span>
+          <span class="text-purple-400">llama3</span>
+          <span :class="wsOk ? 'text-green-500' : 'text-gray-600'"
+                class="text-xs" x-text="wsOk ? '● połączony' : '○ offline'"></span>
+        </div>
+
+        <div class="ml-auto text-xs text-gray-600">
+          Sync: <span x-text="lastSync ? lastSync.toLocaleTimeString('pl-PL') : '—'"></span>
+        </div>
+      </div>
+    </header>
+
+    <!-- CONTENT -->
+    <main class="flex-1 overflow-auto p-5">
+
+      <!-- ── WELCOME ─────────────────────────────────────────────────────── -->
+      <template x-if="!selSrvId">
+        <div class="flex flex-col items-center justify-center h-full text-center select-none">
+          <div class="text-7xl mb-5 opacity-30">🐳</div>
+          <div class="text-xl text-gray-600 font-semibold">DockerMind</div>
+          <div class="text-gray-700 mt-2 text-sm">Wybierz serwer z panelu bocznego.</div>
+        </div>
+      </template>
+
+      <!-- ── SERVER VIEW ─────────────────────────────────────────────────── -->
+      <template x-if="selSrvId && !selCt">
+        <div>
+          <!-- Server info card -->
+          <template x-if="selSrv">
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-5">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <div class="flex items-center gap-3 mb-3">
+                    <div :class="srvDot(selSrv)" class="w-3 h-3 rounded-full"></div>
+                    <h2 class="text-xl font-bold text-white"
+                        x-text="selSrv.info?.agent_name || selSrvId"></h2>
+                    <span x-show="!selSrv.online"
+                          class="bg-red-950/60 text-red-400 text-xs px-2 py-0.5 rounded border border-red-900">
+                      OFFLINE
+                    </span>
+                  </div>
+                  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <div class="text-gray-600 text-xs uppercase mb-0.5">Hostname</div>
+                      <div class="text-gray-200" x-text="selSrv.info?.hostname || '—'"></div>
+                    </div>
+                    <div>
+                      <div class="text-gray-600 text-xs uppercase mb-0.5">IP</div>
+                      <div class="text-gray-200" x-text="selSrv.info?.ip || '—'"></div>
+                    </div>
+                    <div>
+                      <div class="text-gray-600 text-xs uppercase mb-0.5">System</div>
+                      <div class="text-gray-200 text-xs" x-text="selSrv.info?.os || '—'"></div>
+                    </div>
+                    <div>
+                      <div class="text-gray-600 text-xs uppercase mb-0.5">Docker</div>
+                      <div class="text-gray-200" x-text="selSrv.info?.docker_version || '—'"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="text-right text-xs text-gray-600 flex-shrink-0">
+                  <div>CPUs: <span class="text-gray-400" x-text="selSrv.info?.cpus || '—'"></span></div>
+                  <div>RAM: <span class="text-gray-400" x-text="fmtB(selSrv.info?.total_memory||0)"></span></div>
+                  <div class="mt-1">Ostatnio: <span x-text="ago(selSrv.last_seen)"></span></div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Container grid -->
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <template x-for="ct in selSrv?.containers || []" :key="ct.name">
+              <div class="bg-gray-900 border border-gray-800 hover:border-gray-600
+                           rounded-2xl p-4 transition-colors duration-200 flex flex-col">
+
+                <!-- Header -->
+                <div class="flex items-start justify-between mb-2">
+                  <div class="flex-1 min-w-0 mr-2">
+                    <div class="font-bold text-white truncate text-sm" x-text="ct.name"></div>
+                    <div class="text-gray-500 text-xs truncate" x-text="ct.image"></div>
+                  </div>
+                  <div class="flex flex-col items-end gap-1 flex-shrink-0">
+                    <span :class="stBadge(ct.status)"
+                          class="text-xs px-2 py-0.5 rounded border"
+                          x-text="ct.status"></span>
+                    <template x-if="(ct.restart_count||0) > 3">
+                      <span class="bg-red-950/70 text-red-400 border border-red-900
+                                   text-xs px-1.5 py-0.5 rounded"
+                            x-text="`↺ ${ct.restart_count}`"></span>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- Uptime -->
+                <div class="text-xs text-gray-600 mb-3" x-text="ct.uptime || '—'"></div>
+
+                <!-- CPU bar -->
+                <div class="mb-2">
+                  <div class="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>CPU</span>
+                    <span x-text="`${ct.cpu_percent||0}%`"></span>
+                  </div>
+                  <div class="bg-gray-800 rounded-full h-1.5">
+                    <div :class="cpuClr(ct.cpu_percent)"
+                         class="h-1.5 rounded-full bar"
+                         :style="`width:${Math.min(ct.cpu_percent||0,100)}%`"></div>
+                  </div>
+                </div>
+
+                <!-- RAM bar -->
+                <div class="mb-4">
+                  <div class="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>RAM</span>
+                    <span x-text="fmtRam(ct.memory)"></span>
+                  </div>
+                  <div class="bg-gray-800 rounded-full h-1.5">
+                    <div :class="ramClr(ct.memory?.percent||0)"
+                         class="h-1.5 rounded-full bar"
+                         :style="`width:${Math.min(ct.memory?.percent||0,100)}%`"></div>
+                  </div>
+                </div>
+
+                <!-- Buttons -->
+                <div class="flex gap-2 mt-auto">
+                  <button @click="openCt(ct,'logs')"
+                    class="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300
+                           text-xs py-1.5 rounded-lg transition-colors">
+                    📋 Logi
+                  </button>
+                  <button @click="openCt(ct,'analysis')"
+                    class="flex-1 bg-blue-950/60 hover:bg-blue-900/60 text-blue-400
+                           text-xs py-1.5 rounded-lg transition-colors border border-blue-900/50">
+                    🔍 Analizuj
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Empty -->
+          <template x-if="(selSrv?.containers||[]).length === 0">
+            <div class="text-center py-16 text-gray-700">
+              <div class="text-4xl mb-3">📦</div>
+              <div>Brak kontenerów lub agent offline.</div>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- ── CONTAINER DETAIL ────────────────────────────────────────────── -->
+      <template x-if="selCt">
+        <div>
+          <!-- Breadcrumb -->
+          <div class="flex items-center gap-2 mb-5 text-sm flex-wrap">
+            <button @click="selCt = null; dCharts()"
+              class="text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1">
+              ← <span x-text="selSrv?.info?.agent_name || selSrvId"></span>
+            </button>
+            <span class="text-gray-700">/</span>
+            <span class="font-semibold text-white" x-text="selCt.name"></span>
+            <span :class="stBadge(selCt.status)"
+                  class="text-xs px-2 py-0.5 rounded border"
+                  x-text="selCt.status"></span>
+            <span x-show="(selCt.restart_count||0) > 0"
+                  class="text-xs text-yellow-500">
+              ↺ <span x-text="selCt.restart_count"></span> restartów
+            </span>
+          </div>
+
+          <!-- Tab nav -->
+          <div class="flex gap-1 mb-5 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit">
+            <template x-for="tab in tabs" :key="tab.id">
+              <button @click="switchTab(tab.id)"
+                :class="curTab === tab.id
+                  ? 'bg-gray-700 text-white shadow'
+                  : 'text-gray-500 hover:text-gray-300'"
+                class="px-4 py-1.5 rounded-lg text-sm transition-all duration-150"
+                x-text="tab.lbl">
+              </button>
+            </template>
+          </div>
+
+          <!-- ╔═══════════════╗ -->
+          <!-- ║   TAB: LOGI   ║ -->
+          <!-- ╚═══════════════╝ -->
+          <div x-show="curTab==='logs'">
+            <!-- Controls -->
+            <div class="flex flex-wrap items-center gap-2 mb-3">
+              <input type="text" x-model="logFilter" placeholder="Filtruj logi..."
+                class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5
+                       text-sm text-gray-200 w-44 focus:outline-none focus:border-blue-500">
+
+              <select x-model.number="logLines" @change="loadLogs()"
+                class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5
+                       text-sm text-gray-200 focus:outline-none cursor-pointer">
+                <option value="100">100 linii</option>
+                <option value="200">200 linii</option>
+                <option value="500">500 linii</option>
+                <option value="1000">1000 linii</option>
+                <option value="5000">wszystkie (~5000)</option>
+              </select>
+
+              <button @click="loadLogs()"
+                class="bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm
+                       px-3 py-1.5 rounded-lg transition-colors">
+                🔄
+              </button>
+
+              <button @click="logPaused=!logPaused"
+                :class="logPaused
+                  ? 'bg-yellow-900/50 text-yellow-400 border border-yellow-800'
+                  : 'bg-gray-800 text-gray-300'"
+                class="text-sm px-3 py-1.5 rounded-lg transition-colors">
+                <span x-text="logPaused ? '▶ Wznów' : '⏸ Pauza'"></span>
+              </button>
+
+              <button @click="dlLogs()"
+                class="bg-gray-800 hover:bg-gray-700 text-gray-300
+                       text-sm px-3 py-1.5 rounded-lg transition-colors">
+                💾 Pobierz
+              </button>
+
+              <button @click="logTs=!logTs"
+                :class="logTs ? 'text-blue-400' : 'text-gray-500'"
+                class="bg-gray-800 text-sm px-3 py-1.5 rounded-lg transition-colors">
+                🕐 Czas
+              </button>
+            </div>
+
+            <!-- Log viewer -->
+            <div x-show="logLoading" class="text-center py-10 text-gray-600">
+              ⏳ Pobieranie logów...
+            </div>
+            <div x-show="!logLoading" id="log-viewer"
+              class="bg-gray-950 border border-gray-800 rounded-2xl p-4
+                     h-96 md:h-[32rem] overflow-y-auto mono text-gray-300"
+              x-html="renderLogs()">
+            </div>
+          </div>
+
+          <!-- ╔══════════════════════╗ -->
+          <!-- ║   TAB: COMPOSE       ║ -->
+          <!-- ╚══════════════════════╝ -->
+          <div x-show="curTab==='compose'">
+            <div x-show="cmpLoading" class="text-center py-10 text-gray-600">
+              ⏳ Pobieranie pliku compose...
+            </div>
+            <div x-show="!cmpLoading">
+              <template x-if="!compose || compose.startsWith('Plik') || compose.startsWith('Błąd') || compose.startsWith('Kontener')">
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-10 text-center">
+                  <div class="text-4xl mb-3">📄</div>
+                  <div class="text-gray-500" x-text="compose || 'Plik docker-compose.yml nie został znaleziony.'"></div>
+                </div>
+              </template>
+              <template x-if="compose && !compose.startsWith('Plik') && !compose.startsWith('Błąd') && !compose.startsWith('Kontener')">
+                <div class="relative">
+                  <button @click="clip(compose)"
+                    class="absolute top-3 right-3 z-10 bg-gray-700 hover:bg-gray-600
+                           text-xs text-gray-300 px-3 py-1 rounded transition-colors">
+                    📋 Kopiuj
+                  </button>
+                  <pre id="compose-pre"
+                    class="bg-gray-950 border border-gray-800 rounded-2xl p-5
+                           overflow-x-auto text-sm leading-relaxed"><code
+                    class="language-yaml" x-text="compose"></code></pre>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- ╔══════════════════════╗ -->
+          <!-- ║   TAB: ANALIZA AI    ║ -->
+          <!-- ╚══════════════════════╝ -->
+          <div x-show="curTab==='analysis'">
+            <!-- Metrics mini-cards -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">Status</div>
+                <span :class="stBadge(selCt.status)" class="text-xs px-2 py-0.5 rounded border"
+                      x-text="selCt.status"></span>
+              </div>
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">Restarty</div>
+                <span :class="(selCt.restart_count||0)>3 ? 'text-red-400 font-bold' : 'text-gray-200'"
+                      x-text="selCt.restart_count||0"></span>
+              </div>
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">CPU</div>
+                <span class="text-gray-200" x-text="`${selCt.cpu_percent||0}%`"></span>
+              </div>
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">RAM</div>
+                <span class="text-gray-200 text-xs" x-text="fmtRam(selCt.memory)"></span>
+              </div>
+            </div>
+
+            <!-- Last crash -->
+            <template x-if="selCt.last_crash">
+              <div class="bg-red-950/40 border border-red-900 rounded-xl p-3 mb-4 text-sm text-red-300">
+                ⚠ Ostatnia awaria: <span class="font-mono" x-text="selCt.last_crash"></span>
+                · kod wyjścia: <span class="font-bold" x-text="selCt.exit_code"></span>
+              </div>
+            </template>
+
+            <!-- Trigger + Risk badge -->
+            <div class="flex items-center gap-3 mb-4">
+              <button @click="runAnalysis()"
+                :disabled="aiRunning"
+                :class="aiRunning ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-500 active:scale-95'"
+                class="bg-blue-600 text-white font-semibold px-6 py-2.5
+                       rounded-xl transition-all flex items-center gap-2">
+                <span x-show="aiRunning" class="inline-block animate-spin">⟳</span>
+                <span x-text="aiRunning ? 'Analiza trwa...' : '🔍 Analizuj z AI'"></span>
+              </button>
+
+              <template x-if="aiRisk !== 'NIEZNANY' && aiContent">
+                <span :class="riskBadge(aiRisk)"
+                      class="text-sm font-bold px-3 py-1.5 rounded-lg"
+                      x-text="`⚠ Ryzyko: ${aiRisk}`"></span>
+              </template>
+            </div>
+
+            <!-- Streaming response -->
+            <template x-if="aiContent">
+              <div id="analysis-stream"
+                class="bg-gray-950 border border-gray-800 rounded-2xl p-5 mb-5
+                       overflow-y-auto max-h-[32rem] analysis text-sm">
+                <div x-html="renderAnalysis(aiContent)"></div>
+              </div>
+            </template>
+
+            <!-- Saved analyses -->
+            <div class="mt-2">
+              <div class="flex items-center justify-between mb-3">
+                <div class="text-sm font-semibold text-gray-400">📚 Historia analiz</div>
+                <button @click="loadAnalyses()"
+                  class="text-xs text-gray-600 hover:text-gray-400 transition-colors">
+                  🔄 Odśwież
+                </button>
+              </div>
+
+              <template x-if="savedAnalyses.length === 0">
+                <div class="text-gray-700 text-sm text-center py-6">
+                  Brak zapisanych analiz dla tego kontenera.
+                </div>
+              </template>
+
+              <template x-for="a in savedAnalyses" :key="a.id">
+                <div class="bg-gray-900 border border-gray-800 rounded-xl mb-2 overflow-hidden">
+                  <div @click="a._open = !a._open"
+                    class="flex items-center justify-between px-4 py-3
+                           cursor-pointer hover:bg-gray-800/60 transition-colors">
+                    <div class="flex items-center gap-2 flex-1 min-w-0">
+                      <span :class="riskBadge(a.risk_level)"
+                            class="text-xs px-2 py-0.5 rounded flex-shrink-0"
+                            x-text="a.risk_level"></span>
+                      <span class="text-sm text-gray-400 truncate" x-text="a.first_line||'...'"></span>
+                    </div>
+                    <div class="flex items-center gap-3 flex-shrink-0 ml-2">
+                      <span class="text-xs text-gray-600" x-text="fmtDt(a.created_at)"></span>
+                      <button @click.stop="delAnalysis(a.id)"
+                        class="text-gray-700 hover:text-red-400 transition-colors text-xs">✕</button>
+                      <span class="text-gray-600 text-xs" x-text="a._open ? '▲' : '▼'"></span>
+                    </div>
+                  </div>
+
+                  <div x-show="a._open"
+                       class="px-4 py-3 border-t border-gray-800 analysis text-sm">
+                    <template x-if="a.full_content">
+                      <div x-html="renderAnalysis(a.full_content)"></div>
+                    </template>
+                    <template x-if="!a.full_content">
+                      <button @click="loadFull(a)"
+                        class="text-blue-400 hover:text-blue-300 text-xs transition-colors">
+                        Załaduj pełną treść →
+                      </button>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- ╔══════════════════════╗ -->
+          <!-- ║   TAB: HISTORIA      ║ -->
+          <!-- ╚══════════════════════╝ -->
+          <div x-show="curTab==='history'">
+            <div x-show="histLoading" class="text-center py-10 text-gray-600">
+              ⏳ Ładowanie historii...
+            </div>
+            <div x-show="!histLoading">
+              <!-- Charts row -->
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                  <div class="text-sm text-gray-500 mb-3">Restarty / dzień (7 dni)</div>
+                  <div class="h-40"><canvas id="chart-restarts"></canvas></div>
+                </div>
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                  <div class="text-sm text-gray-500 mb-3">CPU % — zdarzenia</div>
+                  <div class="h-40"><canvas id="chart-cpu"></canvas></div>
+                </div>
+              </div>
+
+              <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4 mb-4">
+                <div class="text-sm text-gray-500 mb-3">RAM % — zdarzenia</div>
+                <div class="h-40"><canvas id="chart-ram"></canvas></div>
+              </div>
+
+              <!-- Timeline -->
+              <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                <div class="text-sm text-gray-500 mb-4">Oś czasu zdarzeń</div>
+
+                <template x-if="!histData || histData.events.length === 0">
+                  <div class="text-gray-700 text-sm text-center py-6">
+                    Brak zdarzeń w ciągu ostatnich 7 dni.
+                  </div>
+                </template>
+
+                <div class="space-y-2.5">
+                  <template x-for="e in [...(histData?.events||[])].reverse()" :key="e.id">
+                    <div class="flex items-center gap-3 text-sm">
+                      <div :class="evDot(e.event_type)"
+                           class="w-2.5 h-2.5 rounded-full flex-shrink-0"></div>
+                      <span class="font-mono text-xs text-gray-500 w-32 flex-shrink-0"
+                            x-text="e.occurred_at.replace('T',' ').substring(0,16)"></span>
+                      <span :class="evBadge(e.event_type)"
+                            class="text-xs px-2 py-0.5 rounded border flex-shrink-0"
+                            x-text="e.event_type.toUpperCase()"></span>
+                      <span class="text-gray-500 text-xs truncate"
+                            x-text="`exit:${e.exit_code} · restarts:${e.restart_count} · CPU:${e.cpu_percent}% · RAM:${e.mem_percent}%`">
+                      </span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /container detail -->
+      </template>
+
+    </main>
+  </div><!-- /main panel -->
+</div><!-- /main app -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     APPLICATION LOGIC
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<script>
+function app() {
+  return {
+
+    /* ── Auth ──────────────────────────────────────────────────────────── */
+    loggedIn: false,
+    lf: { u: 'admin', p: '', err: '' },
+    token: null,
+    me: '',
+
+    /* ── WebSocket ─────────────────────────────────────────────────────── */
+    ws: null,
+    wsOk: false,
+    lastSync: null,
+
+    /* ── Servers ───────────────────────────────────────────────────────── */
+    servers: [],
+    selSrvId: null,
+
+    /* ── Container detail ──────────────────────────────────────────────── */
+    selCt: null,
+    curTab: 'logs',
+    tabs: [
+      { id: 'logs',     lbl: '📋 Logi' },
+      { id: 'compose',  lbl: '📄 Compose' },
+      { id: 'analysis', lbl: '🔍 Analiza AI' },
+      { id: 'history',  lbl: '📊 Historia' },
+    ],
+
+    /* ── Logs ──────────────────────────────────────────────────────────── */
+    logs: '',
+    logLoading: false,
+    logLines: 200,
+    logFilter: '',
+    logPaused: false,
+    logTs: true,
+
+    /* ── Compose ───────────────────────────────────────────────────────── */
+    compose: '',
+    cmpLoading: false,
+
+    /* ── AI analysis ───────────────────────────────────────────────────── */
+    aiRunning: false,
+    aiContent: '',
+    aiRisk: 'NIEZNANY',
+    savedAnalyses: [],
+
+    /* ── History ───────────────────────────────────────────────────────── */
+    histData: null,
+    histLoading: false,
+    _charts: {},
+
+    /* ══════════════════════════════════════════════════════════════════════
+       INIT
+       ══════════════════════════════════════════════════════════════════════ */
+    init() {
+      const t = localStorage.getItem('dm_token');
+      if (t) {
+        this.token  = t;
+        this.me     = localStorage.getItem('dm_user') || 'admin';
+        this.loggedIn = true;
+        this.connectWS();
+      }
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       AUTH
+       ══════════════════════════════════════════════════════════════════════ */
+    async login() {
+      this.lf.err = '';
+      try {
+        const r = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: this.lf.u, password: this.lf.p }),
+        });
+        if (!r.ok) {
+          const e = await r.json().catch(() => ({}));
+          this.lf.err = e.detail || 'Nieprawidłowe dane logowania.';
+          return;
+        }
+        const d = await r.json();
+        this.token = d.access_token;
+        this.me    = d.username;
+        localStorage.setItem('dm_token', this.token);
+        localStorage.setItem('dm_user',  this.me);
+        this.loggedIn = true;
+        this.connectWS();
+      } catch {
+        this.lf.err = 'Błąd połączenia z serwerem.';
+      }
+    },
+
+    logout() {
+      localStorage.removeItem('dm_token');
+      localStorage.removeItem('dm_user');
+      this.token    = null;
+      this.loggedIn = false;
+      this.servers  = [];
+      this.selSrvId = null;
+      this.selCt    = null;
+      if (this.ws) { this.ws.close(); this.ws = null; }
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       WEBSOCKET
+       ══════════════════════════════════════════════════════════════════════ */
+    connectWS() {
+      if (this.ws && this.ws.readyState < 2) this.ws.close();
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      try {
+        this.ws = new WebSocket(`${proto}//${location.host}/ws/dashboard?token=${this.token}`);
+      } catch { return; }
+
+      this.ws.onopen    = () => { this.wsOk = true; };
+      this.ws.onclose   = () => {
+        this.wsOk = false;
+        if (this.loggedIn) setTimeout(() => this.connectWS(), 3000);
+      };
+      this.ws.onerror   = () => {};
+      this.ws.onmessage = (e) => {
+        try { this._onWS(JSON.parse(e.data)); } catch {}
+      };
+    },
+
+    _onWS(msg) {
+      const { event, data } = msg;
+
+      if (event === 'init') {
+        for (const a of data.agents || []) this._upSrv(a);
+        this.lastSync = new Date();
+      }
+      else if (event === 'agent_online') {
+        this._upSrv({ agent_id: data.agent_id, online: true, info: data.info });
+      }
+      else if (event === 'agent_offline') {
+        const s = this._srv(data.agent_id);
+        if (s) s.online = false;
+      }
+      else if (event === 'agent_data') {
+        const s = this._srv(data.agent_id);
+        if (s) {
+          s.containers = data.containers || [];
+          s.last_seen  = data.timestamp;
+          s.online     = true;
+        } else {
+          this._upSrv({
+            agent_id:   data.agent_id,
+            online:     true,
+            containers: data.containers || [],
+            last_seen:  data.timestamp,
+          });
+        }
+        // Update live metrics on selected container
+        if (this.selCt && this.selSrvId === data.agent_id) {
+          const fresh = (data.containers || []).find(c => c.name === this.selCt.name);
+          if (fresh) Object.assign(this.selCt, fresh);
+        }
+        this.lastSync = new Date();
+      }
+      else if (event === 'analysis_start') {
+        if (this._isCur(data)) {
+          this.aiRunning = true;
+          this.aiContent = '';
+          this.aiRisk    = 'NIEZNANY';
+        }
+      }
+      else if (event === 'analysis_token') {
+        if (this._isCur(data)) {
+          this.aiContent += data.token;
+          this.aiRisk = this._parseRisk(this.aiContent);
+          this.$nextTick(() => {
+            const el = document.getElementById('analysis-stream');
+            if (el) el.scrollTop = el.scrollHeight;
+          });
+        }
+      }
+      else if (event === 'analysis_done') {
+        if (this._isCur(data)) {
+          this.aiRunning = false;
+          this.loadAnalyses();
+        }
+      }
+      else if (event === 'analysis_error') {
+        if (this._isCur(data)) {
+          this.aiRunning = false;
+          this.aiContent += `\n\n❌ Błąd analizy: ${data.error}`;
+        }
+      }
+    },
+
+    _upSrv(d) {
+      const i = this.servers.findIndex(s => s.agent_id === d.agent_id);
+      if (i >= 0) Object.assign(this.servers[i], d);
+      else        this.servers.push({ containers: [], online: false, ...d });
+    },
+    _srv(id)    { return this.servers.find(s => s.agent_id === id); },
+    _isCur(d)   { return this.selCt?.name === d.container_name && this.selSrvId === d.agent_id; },
+
+    _parseRisk(txt) {
+      const m = txt.match(/Ocena ryzyka[^:]*:\s*\[?(NISKI|ŚREDNI|WYSOKI|KRYTYCZNY)\]?/i);
+      if (m) return m[1].toUpperCase();
+      for (const l of ['KRYTYCZNY','WYSOKI','ŚREDNI','NISKI'])
+        if (txt.toUpperCase().includes(l)) return l;
+      return 'NIEZNANY';
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       COMPUTED
+       ══════════════════════════════════════════════════════════════════════ */
+    get gs() {
+      let sOn=0, sOff=0, cRun=0, cStop=0, cUnhealthy=0;
+      for (const s of this.servers) {
+        s.online ? sOn++ : sOff++;
+        for (const c of s.containers || []) {
+          if (c.status === 'running') cRun++;
+          else if (['exited','dead'].includes(c.status)) cStop++;
+          if ((c.restart_count||0) > 3) cUnhealthy++;
+        }
+      }
+      return { sOn, sOff, cRun, cStop, cUnhealthy };
+    },
+
+    get sortedServers() {
+      return [...this.servers].sort((a,b) => {
+        if (a.online && !b.online) return -1;
+        if (!a.online && b.online) return 1;
+        return (a.info?.agent_name||'').localeCompare(b.info?.agent_name||'');
+      });
+    },
+
+    get selSrv() { return this._srv(this.selSrvId); },
+
+    get filteredLogs() {
+      if (!this.logs) return '';
+      if (!this.logFilter) return this.logs;
+      const f = this.logFilter.toLowerCase();
+      return this.logs.split('\n').filter(l => l.toLowerCase().includes(f)).join('\n');
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       NAVIGATION
+       ══════════════════════════════════════════════════════════════════════ */
+    selectSrv(id) {
+      this.selSrvId = id;
+      this.selCt    = null;
+      this.dCharts();
+    },
+
+    openCt(ct, tab = 'logs') {
+      this.selCt      = { ...ct };
+      this.curTab     = tab;
+      this.logs       = '';
+      this.compose    = '';
+      this.aiContent  = '';
+      this.aiRisk     = 'NIEZNANY';
+      this.aiRunning  = false;
+      this.savedAnalyses = [];
+      this.histData   = null;
+      this.dCharts();
+
+      if (tab === 'logs')     this.loadLogs();
+      if (tab === 'compose')  this.loadCompose();
+      if (tab === 'analysis') this.loadAnalyses();
+      if (tab === 'history')  this.loadHistory();
+    },
+
+    switchTab(tab) {
+      this.curTab = tab;
+      this.dCharts();
+      if (tab === 'logs'     && !this.logs)             this.loadLogs();
+      if (tab === 'compose'  && !this.compose)          this.loadCompose();
+      if (tab === 'analysis')                           this.loadAnalyses();
+      if (tab === 'history')                            this.loadHistory();
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       API HELPERS
+       ══════════════════════════════════════════════════════════════════════ */
+    async _get(url) {
+      const r = await fetch(url, { headers: { Authorization: `Bearer ${this.token}` } });
+      if (r.status === 401) { this.logout(); return null; }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+
+    async _post(url, body) {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (r.status === 401) { this.logout(); return null; }
+      if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.detail || `HTTP ${r.status}`); }
+      return r.json();
+    },
+
+    async _del(url) {
+      const r = await fetch(url, { method: 'DELETE', headers: { Authorization: `Bearer ${this.token}` } });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       DATA LOADING
+       ══════════════════════════════════════════════════════════════════════ */
+    async loadLogs() {
+      if (!this.selCt) return;
+      this.logLoading = true;
+      this.logs = '';
+      try {
+        const d = await this._get(
+          `/api/servers/${this.selSrvId}/containers/${encodeURIComponent(this.selCt.name)}/logs?lines=${this.logLines}`
+        );
+        if (d) {
+          this.logs = d.logs || '';
+          this.$nextTick(() => {
+            const el = document.getElementById('log-viewer');
+            if (el) el.scrollTop = el.scrollHeight;
+          });
+        }
+      } catch(e) {
+        this.logs = `Błąd: ${e.message}`;
+      } finally {
+        this.logLoading = false;
+      }
+    },
+
+    async loadCompose() {
+      if (!this.selCt) return;
+      this.cmpLoading = true;
+      try {
+        const d = await this._get(
+          `/api/servers/${this.selSrvId}/containers/${encodeURIComponent(this.selCt.name)}/compose`
+        );
+        if (d) {
+          this.compose = d.compose || '';
+          this.$nextTick(() => {
+            const el = document.querySelector('#compose-pre code');
+            if (el && !el.dataset.highlighted) hljs.highlightElement(el);
+          });
+        }
+      } catch(e) {
+        this.compose = `Błąd: ${e.message}`;
+      } finally {
+        this.cmpLoading = false;
+      }
+    },
+
+    async runAnalysis() {
+      if (!this.selCt || this.aiRunning) return;
+      this.aiRunning = true;
+      this.aiContent = '⏳ Wysyłanie żądania analizy...\n';
+      this.aiRisk    = 'NIEZNANY';
+      try {
+        await this._post('/api/analyze', {
+          agent_id:       this.selSrvId,
+          container_name: this.selCt.name,
+        });
+        this.aiContent = '⏳ Analiza AI uruchomiona. Tokeny pojawią się za chwilę...\n\n';
+      } catch(e) {
+        this.aiRunning = false;
+        this.aiContent = `❌ Błąd uruchomienia analizy: ${e.message}`;
+      }
+    },
+
+    async loadAnalyses() {
+      if (!this.selCt) return;
+      try {
+        const d = await this._get(
+          `/api/analyses?agent_id=${this.selSrvId}&container_name=${encodeURIComponent(this.selCt.name)}`
+        );
+        if (d) this.savedAnalyses = d.map(a => ({ ...a, _open: false, full_content: null }));
+      } catch {}
+    },
+
+    async loadFull(a) {
+      try {
+        const d = await this._get(`/api/analyses/${a.id}`);
+        if (d) a.full_content = d.content;
+      } catch {}
+    },
+
+    async delAnalysis(id) {
+      if (!confirm('Usunąć tę analizę?')) return;
+      try {
+        await this._del(`/api/analyses/${id}`);
+        this.savedAnalyses = this.savedAnalyses.filter(a => a.id !== id);
+      } catch(e) { alert(`Błąd: ${e.message}`); }
+    },
+
+    async loadHistory() {
+      if (!this.selCt) return;
+      this.histLoading = true;
+      try {
+        const d = await this._get(
+          `/api/servers/${this.selSrvId}/containers/${encodeURIComponent(this.selCt.name)}/history?days=7`
+        );
+        if (d) {
+          this.histData = d;
+          this.$nextTick(() => this.renderCharts());
+        }
+      } catch {}
+      finally { this.histLoading = false; }
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       CHARTS
+       ══════════════════════════════════════════════════════════════════════ */
+    renderCharts() {
+      this.dCharts();
+      const evts = this.histData?.events || [];
+      if (!evts.length) return;
+
+      const baseOpts = {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: { legend: { labels: { color: '#6b7280', boxWidth: 10, font: { size: 11 } } } },
+        scales: {
+          x: { ticks: { color: '#4b5563', maxTicksLimit: 6, maxRotation: 0 }, grid: { color: '#111827' } },
+          y: { ticks: { color: '#4b5563' }, grid: { color: '#111827' }, beginAtZero: true },
+        },
+      };
+
+      // Restarts per day
+      const byDay = {};
+      for (const e of evts) {
+        const d = e.occurred_at.substring(0, 10);
+        byDay[d] = (byDay[d] || 0) + (e.event_type === 'restart' ? 1 : 0);
+      }
+      const rc = document.getElementById('chart-restarts');
+      if (rc) this._charts.r = new Chart(rc, {
+        type: 'bar',
+        data: { labels: Object.keys(byDay), datasets: [{
+          label: 'Restarty',
+          data: Object.values(byDay),
+          backgroundColor: '#ef4444', borderRadius: 4,
+        }]},
+        options: { ...baseOpts },
+      });
+
+      const xLbls = evts.map(e => e.occurred_at.substring(0,16).replace('T',' '));
+
+      const cc = document.getElementById('chart-cpu');
+      if (cc) this._charts.c = new Chart(cc, {
+        type: 'line',
+        data: { labels: xLbls, datasets: [{
+          label: 'CPU %', data: evts.map(e => e.cpu_percent),
+          borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.1)',
+          fill: true, tension: 0.4, pointRadius: 2,
+        }]},
+        options: { ...baseOpts },
+      });
+
+      const rmc = document.getElementById('chart-ram');
+      if (rmc) this._charts.m = new Chart(rmc, {
+        type: 'line',
+        data: { labels: xLbls, datasets: [{
+          label: 'RAM %', data: evts.map(e => e.mem_percent),
+          borderColor: '#8b5cf6', backgroundColor: 'rgba(139,92,246,.1)',
+          fill: true, tension: 0.4, pointRadius: 2,
+        }]},
+        options: { ...baseOpts },
+      });
+    },
+
+    dCharts() {
+      for (const c of Object.values(this._charts)) c.destroy();
+      this._charts = {};
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       STYLING HELPERS
+       ══════════════════════════════════════════════════════════════════════ */
+    srvDot(s) {
+      if (!s.online)       return 'bg-red-500';
+      if (this.srvWarn(s)) return 'bg-yellow-400';
+      return 'bg-green-400';
+    },
+    srvWarn(s)  { return (s.containers||[]).some(c => (c.restart_count||0) > 3); },
+
+    stBadge(st) {
+      if (st === 'running')    return 'bg-green-950/60 text-green-400 border-green-900';
+      if (st === 'restarting') return 'bg-yellow-950/60 text-yellow-400 border-yellow-900';
+      if (st === 'paused')     return 'bg-blue-950/60 text-blue-400 border-blue-900';
+      return 'bg-red-950/60 text-red-400 border-red-900';
+    },
+
+    riskBadge(r) {
+      const m = {
+        NISKI:     'bg-green-800 text-green-100',
+        ŚREDNI:    'bg-yellow-700 text-yellow-100',
+        WYSOKI:    'bg-orange-700 text-orange-100',
+        KRYTYCZNY: 'bg-red-700 text-red-100',
+      };
+      return m[r] || 'bg-gray-700 text-gray-300';
+    },
+
+    cpuClr(p) {
+      if (p > 80) return 'bg-red-500';
+      if (p > 50) return 'bg-yellow-500';
+      return 'bg-blue-500';
+    },
+    ramClr(p) {
+      if (p > 85) return 'bg-red-500';
+      if (p > 65) return 'bg-yellow-500';
+      return 'bg-purple-500';
+    },
+
+    evDot(t) {
+      return { crash:'bg-red-500', restart:'bg-yellow-500',
+               stop:'bg-gray-500', start:'bg-green-500' }[t] || 'bg-gray-600';
+    },
+    evBadge(t) {
+      return { crash:'bg-red-950/60 text-red-400 border-red-900',
+               restart:'bg-yellow-950/60 text-yellow-400 border-yellow-900',
+               stop:'bg-gray-800 text-gray-400 border-gray-700',
+               start:'bg-green-950/60 text-green-400 border-green-900' }[t]
+          || 'bg-gray-800 text-gray-400 border-gray-700';
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       FORMATTERS
+       ══════════════════════════════════════════════════════════════════════ */
+    ago(ts) {
+      if (!ts) return '—';
+      const d = Math.floor(Date.now()/1000 - ts);
+      if (d < 10)   return 'teraz';
+      if (d < 60)   return `${d}s temu`;
+      if (d < 3600) return `${Math.floor(d/60)}m temu`;
+      return `${Math.floor(d/3600)}h temu`;
+    },
+
+    fmtRam(m) {
+      if (!m) return '—';
+      return `${this.fmtB(m.usage_bytes)} / ${this.fmtB(m.limit_bytes)} (${m.percent||0}%)`;
+    },
+
+    fmtB(n) {
+      if (!n) return '0 B';
+      const u = ['B','KB','MB','GB'];
+      let i = 0;
+      while (n >= 1024 && i < u.length-1) { n /= 1024; i++; }
+      return `${n.toFixed(1)} ${u[i]}`;
+    },
+
+    fmtDt(iso) {
+      if (!iso) return '';
+      return new Date(iso).toLocaleString('pl-PL', { dateStyle:'short', timeStyle:'short' });
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       CONTENT RENDERERS
+       ══════════════════════════════════════════════════════════════════════ */
+    renderLogs() {
+      const txt = this.filteredLogs;
+      if (!txt) return '<span class="text-gray-700">Brak logów.</span>';
+
+      let lines = txt.split('\n');
+
+      // Strip timestamp prefix if user toggled timestamps off
+      if (!this.logTs) {
+        lines = lines.map(l => l.replace(/^\d{4}-\d{2}-\d{2}T[\d:.Z+\-]+ /, ''));
+      }
+
+      const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+      if (!this.logFilter) return esc(lines.join('\n'));
+
+      const f = this.logFilter.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      const re = new RegExp(`(${f})`, 'gi');
+      return lines.map(l => esc(l).replace(re, '<mark class="hi">$1</mark>')).join('\n');
+    },
+
+    renderAnalysis(txt) {
+      if (!txt) return '';
+
+      // Escape HTML first
+      let h = txt
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;');
+
+      // Code blocks
+      h = h.replace(/```[a-z]*\n?([\s\S]*?)```/g, (_, code) => {
+        const raw = code.trim()
+          .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+        const safe = raw
+          .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const json = JSON.stringify(raw);
+        return `<pre><code>${safe}</code><button class="copy-btn" onclick="navigator.clipboard.writeText(${json})">📋 Kopiuj</button></pre>`;
+      });
+
+      // Inline code
+      h = h.replace(/`([^`\n]+)`/g,'<code>$1</code>');
+
+      // Headers
+      h = h.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+
+      // Bold
+      h = h.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+
+      // Bullet
+      h = h.replace(/^[•\-\*] (.+)$/gm, '<li>$1</li>');
+
+      // Line breaks
+      h = h.replace(/\n/g, '<br>');
+
+      return h;
+    },
+
+    dlLogs() {
+      const n = this.selCt?.name || 'container';
+      const b = new Blob([this.logs], { type: 'text/plain' });
+      const u = URL.createObjectURL(b);
+      const a = document.createElement('a');
+      a.href = u; a.download = `${n}.log`; a.click();
+      URL.revokeObjectURL(u);
+    },
+
+    clip(txt) {
+      navigator.clipboard.writeText(txt).catch(() => {});
+    },
+
+  }; // end return
+} // end app()
+</script>
+
+</body>
+</html>
