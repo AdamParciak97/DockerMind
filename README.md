@@ -9,6 +9,9 @@
 
 **AI-powered Docker monitoring platform — fully offline, 3-server architecture.**
 
+<img width="1912" height="548" alt="image" src="https://github.com/user-attachments/assets/7b8b21ed-e0d9-4db7-aa2b-27306c9a779d" />
+
+
 Monitors all Docker containers across your infrastructure. One click triggers a
 streaming AI analysis (llama3) that diagnoses problems, assesses risk, and provides
 copy-paste fix commands — entirely within your local network, no internet required.
@@ -421,5 +424,11 @@ cp /ścieżka/do/docker-compose.yml /etc/dockermind/nazwa-kontenera/
 | Packaging | Docker + docker-compose |
 
 ---
+
+## 📸 Screenshots
+<img width="1623" height="992" alt="image" src="https://github.com/user-attachments/assets/d321628e-a2f1-40c3-9f52-60237b6c0905" />
+
+<img width="1609" height="637" alt="image" src="https://github.com/user-attachments/assets/49f7172b-24a1-4225-9803-18a873ecb1c1" />
+
 
 *DockerMind — AI diagnostics for your Docker infrastructure, fully offline.*
