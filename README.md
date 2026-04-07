@@ -331,6 +331,7 @@ docker compose up -d
 ---
 
 ## 📸 Screenshots
+<img width="1916" height="780" alt="image" src="https://github.com/user-attachments/assets/d59bcafe-f41b-43ad-bfcd-a4843190051c" />
 
 <img width="1623" height="992" alt="image" src="https://github.com/user-attachments/assets/d321628e-a2f1-40c3-9f52-60237b6c0905" />
 
