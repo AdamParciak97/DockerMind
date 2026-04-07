@@ -5,10 +5,15 @@ handles on-demand requests, auto-reconnects with exponential backoff.
 """
 
 import asyncio
+import base64
+import fcntl
 import json
 import logging
 import os
+import pty
 import socket
+import struct
+import termios
 import time
 from typing import Optional
 
@@ -27,9 +32,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
-CENTRAL_URL: str = os.getenv("CENTRAL_URL", "ws://localhost/ws/agent")
-AGENT_TOKEN: str = os.getenv("AGENT_TOKEN", "")
-AGENT_NAME: str = os.getenv("AGENT_NAME", socket.gethostname())
+CENTRAL_URL: str  = os.getenv("CENTRAL_URL", "ws://localhost/ws/agent")
+AGENT_TOKEN: str  = os.getenv("AGENT_TOKEN", "")
+AGENT_NAME: str   = os.getenv("AGENT_NAME", socket.gethostname())
+AGENT_IP: str     = os.getenv("AGENT_IP", "")   # explicit host IP (recommended)
 
 STREAM_INTERVAL = 30          # seconds between full data pushes
 PING_INTERVAL   = 20          # WebSocket ping keepalive
@@ -51,13 +57,30 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
+def get_host_hostname() -> str:
+    """Read the host machine's hostname from the mounted host filesystem."""
+    host_root = os.getenv("HOST_ROOT", "/host")
+    for path in [
+        os.path.join(host_root, "etc", "hostname"),
+        "/etc/hostname",
+    ]:
+        try:
+            with open(path) as f:
+                h = f.read().strip()
+                if h:
+                    return h
+        except Exception:
+            pass
+    return socket.gethostname()
+
+
 def build_registration() -> dict:
     docker_info = collector.get_docker_info()
     return {
         "type": "register",
         "agent_name": AGENT_NAME,
-        "hostname": socket.gethostname(),
-        "ip": get_local_ip(),
+        "hostname": get_host_hostname(),
+        "ip": AGENT_IP or get_local_ip(),
         "docker_version": docker_info.get("docker_version", "unknown"),
         "os": docker_info.get("os", "unknown"),
         "kernel": docker_info.get("kernel", "unknown"),
@@ -78,6 +101,105 @@ def build_data_payload() -> dict:
 
 async def send_json(ws, payload: dict) -> None:
     await ws.send(json.dumps(payload, ensure_ascii=False))
+
+
+# ── Exec sessions (browser terminal) ─────────────────────────────────────────
+
+_exec_sessions: dict[str, dict] = {}  # session_id → {master_fd, proc, task}
+
+
+def _set_pty_size(fd: int, cols: int, rows: int) -> None:
+    try:
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+    except Exception:
+        pass
+
+
+async def _read_pty_output(session_id: str, master_fd: int, ws) -> None:
+    """Read from PTY master and forward to central as base64."""
+    loop = asyncio.get_event_loop()
+    try:
+        while True:
+            try:
+                data = await loop.run_in_executor(None, os.read, master_fd, 4096)
+            except OSError:
+                break
+            if not data:
+                break
+            await send_json(ws, {
+                "type": "exec_output",
+                "session_id": session_id,
+                "data": base64.b64encode(data).decode(),
+            })
+    except asyncio.CancelledError:
+        pass
+    finally:
+        # Notify central the session ended
+        try:
+            await send_json(ws, {"type": "exec_ended", "session_id": session_id})
+        except Exception:
+            pass
+        _exec_sessions.pop(session_id, None)
+
+
+async def handle_exec_start(ws, session_id: str, container: str, cols: int, rows: int) -> None:
+    master_fd, slave_fd = pty.openpty()
+    _set_pty_size(slave_fd, cols, rows)
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "exec", "-it", container, "/bin/sh",
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            preexec_fn=os.setsid,
+            close_fds=True,
+        )
+    except Exception as e:
+        os.close(slave_fd)
+        os.close(master_fd)
+        logger.error("exec_start failed for %s: %s", container, e)
+        await send_json(ws, {"type": "exec_ended", "session_id": session_id})
+        return
+
+    os.close(slave_fd)
+    task = asyncio.create_task(_read_pty_output(session_id, master_fd, ws))
+    _exec_sessions[session_id] = {"master_fd": master_fd, "proc": proc, "task": task}
+    logger.info("Exec session started: %s → %s", session_id[:8], container)
+
+
+async def handle_exec_input(session_id: str, data_b64: str) -> None:
+    sess = _exec_sessions.get(session_id)
+    if not sess:
+        return
+    try:
+        data = base64.b64decode(data_b64)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, os.write, sess["master_fd"], data)
+    except OSError:
+        pass
+
+
+def handle_exec_resize(session_id: str, cols: int, rows: int) -> None:
+    sess = _exec_sessions.get(session_id)
+    if sess:
+        _set_pty_size(sess["master_fd"], cols, rows)
+
+
+async def handle_exec_end(session_id: str) -> None:
+    sess = _exec_sessions.pop(session_id, None)
+    if not sess:
+        return
+    sess["task"].cancel()
+    try:
+        sess["proc"].terminate()
+    except Exception:
+        pass
+    try:
+        os.close(sess["master_fd"])
+    except Exception:
+        pass
+    logger.info("Exec session ended: %s", session_id[:8])
 
 
 # ── On-demand request handler ─────────────────────────────────────────────────
@@ -125,6 +247,28 @@ async def handle_request(ws, message: dict) -> None:
                 "request_id": request_id,
                 "action": action,
                 "data": data,
+            })
+
+        elif action == "container_action":
+            container = params.get("container", "")
+            act = params.get("action", "")
+            result = collector.container_action(container, act)
+            await send_json(ws, {
+                "type": "response",
+                "request_id": request_id,
+                "action": action,
+                "data": result,
+            })
+
+        elif action == "save_compose":
+            container = params.get("container", "")
+            content = params.get("content", "")
+            result = collector.save_compose_file(container, content)
+            await send_json(ws, {
+                "type": "response",
+                "request_id": request_id,
+                "action": action,
+                "data": result,
             })
 
         elif action == "ping":
@@ -180,6 +324,27 @@ async def receive_loop(ws) -> None:
                 asyncio.create_task(handle_request(ws, message))
             elif msg_type == "ack":
                 logger.debug("ACK from central: %s", message.get("message", ""))
+            elif msg_type == "exec_start":
+                asyncio.create_task(handle_exec_start(
+                    ws,
+                    message.get("session_id", ""),
+                    message.get("container", ""),
+                    int(message.get("cols", 80)),
+                    int(message.get("rows", 24)),
+                ))
+            elif msg_type == "exec_input":
+                asyncio.create_task(handle_exec_input(
+                    message.get("session_id", ""),
+                    message.get("data", ""),
+                ))
+            elif msg_type == "exec_resize":
+                handle_exec_resize(
+                    message.get("session_id", ""),
+                    int(message.get("cols", 80)),
+                    int(message.get("rows", 24)),
+                )
+            elif msg_type == "exec_end":
+                asyncio.create_task(handle_exec_end(message.get("session_id", "")))
             else:
                 logger.debug("Unhandled message type: %s", msg_type)
         except json.JSONDecodeError as e:

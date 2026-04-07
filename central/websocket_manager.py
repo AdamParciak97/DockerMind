@@ -51,6 +51,8 @@ class WebSocketManager:
         self._agents: dict[str, AgentConnection] = {}
         # session_id → WebSocket (dashboard browsers)
         self._dashboards: dict[str, WebSocket] = {}
+        # session_id → WebSocket (terminal browser sessions)
+        self._terminals: dict[str, WebSocket] = {}
         # lock for mutating the dicts
         self._lock = asyncio.Lock()
         # background watchdog task handle
@@ -147,6 +149,16 @@ class WebSocketManager:
                 if not fut.done():
                     fut.set_exception(RuntimeError(msg.get("message", "Agent error")))
 
+        elif msg_type == "exec_output":
+            asyncio.create_task(
+                self._route_terminal_output(msg.get("session_id", ""), msg.get("data", ""))
+            )
+
+        elif msg_type == "exec_ended":
+            asyncio.create_task(
+                self._route_terminal_ended(msg.get("session_id", ""))
+            )
+
         else:
             logger.debug("Agent %s: unhandled message type '%s'", agent_id, msg_type)
 
@@ -155,8 +167,6 @@ class WebSocketManager:
         containers = msg.get("containers", [])
         conn.containers = containers
 
-        # Strip raw logs before broadcasting to dashboards
-        # (logs are fetched on-demand; sending 100 lines every 30s is wasteful)
         slim_containers = [
             {k: v for k, v in c.items() if k not in ("logs", "compose")}
             for c in containers
@@ -167,6 +177,20 @@ class WebSocketManager:
             "timestamp": msg.get("timestamp", time.time()),
             "containers": slim_containers,
         })
+
+        # Save metric snapshots + evaluate alert rules (non-blocking)
+        asyncio.create_task(self._bg_process(conn.agent_id, slim_containers))
+
+    async def _bg_process(self, agent_id: str, containers: list[dict]) -> None:
+        try:
+            loop = asyncio.get_event_loop()
+            new_alerts = await loop.run_in_executor(
+                None, _process_data_sync, agent_id, containers
+            )
+            for alert in new_alerts:
+                await self.broadcast_to_dashboards("alert_triggered", alert)
+        except Exception as e:
+            logger.error("Background data processing error for %s: %s", agent_id, e)
 
     async def _resolve_request(self, conn: AgentConnection, msg: dict) -> None:
         request_id = msg.get("request_id")
@@ -220,6 +244,44 @@ class WebSocketManager:
             raise RuntimeError(
                 f"Agent '{agent_id}' nie odpowiedział w ciągu {REQUEST_TIMEOUT}s."
             )
+
+    # ── Terminal sessions ──────────────────────────────────────────────────────
+
+    async def register_terminal(self, session_id: str, ws: WebSocket) -> None:
+        async with self._lock:
+            self._terminals[session_id] = ws
+
+    async def unregister_terminal(self, session_id: str) -> None:
+        async with self._lock:
+            self._terminals.pop(session_id, None)
+
+    async def send_to_agent(self, agent_id: str, message: str) -> None:
+        """Send a raw message directly to an agent WebSocket."""
+        async with self._lock:
+            conn = self._agents.get(agent_id)
+        if conn and conn.ws:
+            try:
+                await conn.ws.send_text(message)
+            except Exception as e:
+                logger.warning("send_to_agent(%s) failed: %s", agent_id, e)
+
+    async def _route_terminal_output(self, session_id: str, data: str) -> None:
+        async with self._lock:
+            ws = self._terminals.get(session_id)
+        if ws:
+            try:
+                await ws.send_text(json.dumps({"type": "output", "data": data}))
+            except Exception:
+                pass
+
+    async def _route_terminal_ended(self, session_id: str) -> None:
+        async with self._lock:
+            ws = self._terminals.get(session_id)
+        if ws:
+            try:
+                await ws.send_text(json.dumps({"type": "ended"}))
+            except Exception:
+                pass
 
     # ── Dashboard connections ──────────────────────────────────────────────────
 
@@ -303,7 +365,8 @@ class WebSocketManager:
     # ── Watchdog ───────────────────────────────────────────────────────────────
 
     async def _watchdog(self) -> None:
-        """Periodically mark agents offline if they stop sending data."""
+        """Periodically mark agents offline and clean up old metric data."""
+        _cleanup_tick = 0
         while True:
             await asyncio.sleep(WATCHDOG_INTERVAL)
             now = time.time()
@@ -323,6 +386,19 @@ class WebSocketManager:
                     )
                     await self.handle_agent_disconnect(agent_id)
 
+            # Cleanup old metric snapshots roughly once per hour
+            _cleanup_tick += 1
+            if _cleanup_tick >= max(1, 3600 // WATCHDOG_INTERVAL):
+                _cleanup_tick = 0
+                asyncio.create_task(self._cleanup_metrics())
+
+    async def _cleanup_metrics(self) -> None:
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, _cleanup_metrics_sync)
+        except Exception as e:
+            logger.error("Metrics cleanup error: %s", e)
+
 
 # ── Singleton ──────────────────────────────────────────────────────────────────
 
@@ -335,3 +411,17 @@ def _slug(name: str) -> str:
     """Convert agent name to a stable lowercase slug used as agent_id."""
     import re
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "agent"
+
+
+def _process_data_sync(agent_id: str, containers: list[dict]) -> list[dict]:
+    from models import engine, process_agent_data
+    from sqlmodel import Session
+    with Session(engine) as session:
+        return process_agent_data(session, agent_id, containers)
+
+
+def _cleanup_metrics_sync() -> None:
+    from models import engine, cleanup_old_snapshots
+    from sqlmodel import Session
+    with Session(engine) as session:
+        cleanup_old_snapshots(session)

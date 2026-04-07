@@ -1,7 +1,9 @@
 """
 auth.py — JWT authentication for DockerMind central.
 
-Single-user model: credentials come from .env (CT_USERNAME / CT_PASSWORD).
+Multi-user model:
+ - env admin (CT_USERNAME / CT_PASSWORD) always works
+ - additional users stored in DB (User table)
 Agents authenticate via AGENT_SECRET_TOKEN header.
 """
 
@@ -13,6 +15,7 @@ import jwt
 from fastapi import Depends, Header, HTTPException, WebSocket, status
 from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
+from sqlmodel import Session
 
 from config import settings
 
@@ -35,7 +38,17 @@ _HASHED_PASSWORD: str = pwd_context.hash(_b72(settings.CT_PASSWORD))
 # ── Password helpers ──────────────────────────────────────────────────────────
 
 def verify_password(plain: str) -> bool:
+    """Verify against the env-configured admin password."""
     return pwd_context.verify(_b72(plain), _HASHED_PASSWORD)
+
+
+def verify_db_password(plain: str, hashed: str) -> bool:
+    """Verify against a DB-stored hashed password."""
+    return pwd_context.verify(_b72(plain), hashed)
+
+
+def hash_password(plain: str) -> str:
+    return pwd_context.hash(_b72(plain))
 
 
 # ── JWT ───────────────────────────────────────────────────────────────────────

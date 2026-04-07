@@ -5,14 +5,16 @@ services:
     container_name: dockermind-agent
     restart: unless-stopped
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /etc/dockermind:/etc/dockermind:ro
-      - /:/host:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/dockermind:/etc/dockermind
+      - /:/host
     environment:
       - CENTRAL_URL=ws://${CENTRAL_HOST}/ws/agent
       - AGENT_TOKEN=${AGENT_TOKEN}
       - AGENT_NAME=${AGENT_NAME}
       - HOST_ROOT=/host
+      # Ustaw IP hosta (nie da się auto-wykryć z kontenera):
+      - AGENT_IP=${AGENT_IP:-}
     security_opt:
       - "no-new-privileges:true"
     cap_drop:

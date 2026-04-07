@@ -1,7 +1,10 @@
 # Docker image exports — za duże na git
 *.tar
-dockermind-offline.tar.gz
+*.tar.gz
 offline-package/
+
+# Claude Code
+.claude/
 
 # Python
 __pycache__/

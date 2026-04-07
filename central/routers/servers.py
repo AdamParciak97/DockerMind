@@ -13,6 +13,7 @@ import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 
 from auth import get_current_user
 from websocket_manager import manager
@@ -120,6 +121,58 @@ async def get_compose(
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     return {"container": container_name, "compose": result}
+
+
+class SaveComposeRequest(BaseModel):
+    content: str
+
+
+@router.put("/api/servers/{agent_id}/containers/{container_name}/compose")
+async def save_compose(
+    agent_id: str,
+    container_name: str,
+    body: SaveComposeRequest,
+    user: str = Depends(get_current_user),
+):
+    _require_online(agent_id)
+    try:
+        result = await manager.request_from_agent(
+            agent_id,
+            action="save_compose",
+            params={"container": container_name, "content": body.content},
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Błąd zapisu pliku."))
+    return result
+
+
+class ContainerActionRequest(BaseModel):
+    action: str  # start | stop | restart
+
+
+@router.post("/api/servers/{agent_id}/containers/{container_name}/action")
+async def container_action(
+    agent_id: str,
+    container_name: str,
+    body: ContainerActionRequest,
+    user: str = Depends(get_current_user),
+):
+    _require_online(agent_id)
+    if body.action not in ("start", "stop", "restart"):
+        raise HTTPException(status_code=400, detail="Akcja musi być: start, stop lub restart.")
+    try:
+        result = await manager.request_from_agent(
+            agent_id,
+            action="container_action",
+            params={"container": container_name, "action": body.action},
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Błąd wykonania akcji."))
+    return result
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -8,7 +8,9 @@ Endpoints:
   Static→  /               (single-file SPA: static/index.html)
 """
 
+import json
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -17,9 +19,13 @@ from fastapi.staticfiles import StaticFiles
 
 from auth import verify_agent_ws, verify_dashboard_ws
 from models import create_db
+from routers.alerts import router as alerts_router
 from routers.analysis import router as analysis_router
 from routers.auth import router as auth_router
+from routers.metrics import router as metrics_router
+from routers.secrets import router as secrets_router
 from routers.servers import router as servers_router
+from routers.settings import router as settings_router
 from websocket_manager import manager
 
 logging.basicConfig(
@@ -55,6 +61,10 @@ app = FastAPI(
 app.include_router(auth_router)
 app.include_router(servers_router)
 app.include_router(analysis_router)
+app.include_router(alerts_router)
+app.include_router(metrics_router)
+app.include_router(secrets_router)
+app.include_router(settings_router)
 
 
 # ── WebSocket: Agent ───────────────────────────────────────────────────────────
@@ -133,6 +143,70 @@ async def dashboard_ws(websocket: WebSocket):
         logger.error("Dashboard WS error (%s): %s", session_id[:8], e)
     finally:
         await manager.disconnect_dashboard(session_id)
+
+
+# ── WebSocket: Terminal ────────────────────────────────────────────────────────
+
+@app.websocket("/ws/terminal")
+async def terminal_ws(websocket: WebSocket):
+    username = await verify_dashboard_ws(websocket)
+    if not username:
+        await websocket.close(code=4001, reason="Nieautoryzowany.")
+        return
+
+    agent_id  = websocket.query_params.get("agent_id", "")
+    container = websocket.query_params.get("container", "")
+    cols = int(websocket.query_params.get("cols", "220"))
+    rows = int(websocket.query_params.get("rows", "50"))
+
+    if not agent_id or not container:
+        await websocket.close(code=4000, reason="Brak agent_id lub container.")
+        return
+
+    await websocket.accept()
+    session_id = str(uuid.uuid4())
+    await manager.register_terminal(session_id, websocket)
+
+    try:
+        await manager.send_to_agent(agent_id, json.dumps({
+            "type": "exec_start",
+            "session_id": session_id,
+            "container": container,
+            "cols": cols,
+            "rows": rows,
+        }))
+
+        while True:
+            raw = await websocket.receive_text()
+            msg = json.loads(raw)
+            t = msg.get("type")
+            if t == "input":
+                await manager.send_to_agent(agent_id, json.dumps({
+                    "type": "exec_input",
+                    "session_id": session_id,
+                    "data": msg.get("data", ""),
+                }))
+            elif t == "resize":
+                await manager.send_to_agent(agent_id, json.dumps({
+                    "type": "exec_resize",
+                    "session_id": session_id,
+                    "cols": msg.get("cols", 80),
+                    "rows": msg.get("rows", 24),
+                }))
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error("Terminal WS error (%s): %s", session_id[:8], e)
+    finally:
+        await manager.unregister_terminal(session_id)
+        try:
+            await manager.send_to_agent(agent_id, json.dumps({
+                "type": "exec_end",
+                "session_id": session_id,
+            }))
+        except Exception:
+            pass
 
 
 # ── Static SPA ─────────────────────────────────────────────────────────────────

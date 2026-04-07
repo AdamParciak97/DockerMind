@@ -83,6 +83,28 @@ def _parse_cpu_percent(stats: dict) -> float:
     return 0.0
 
 
+def _parse_network(stats: dict) -> dict:
+    """Extract cumulative network RX/TX bytes from raw Docker stats."""
+    try:
+        networks = stats.get("networks", {})
+        rx = sum(n.get("rx_bytes", 0) for n in networks.values())
+        tx = sum(n.get("tx_bytes", 0) for n in networks.values())
+        return {"rx_bytes": rx, "tx_bytes": tx}
+    except (KeyError, TypeError):
+        return {"rx_bytes": 0, "tx_bytes": 0}
+
+
+def _parse_blkio(stats: dict) -> dict:
+    """Extract block I/O read/write bytes from raw Docker stats."""
+    try:
+        entries = stats.get("blkio_stats", {}).get("io_service_bytes_recursive") or []
+        read_b  = sum(e.get("value", 0) for e in entries if e.get("op", "").lower() == "read")
+        write_b = sum(e.get("value", 0) for e in entries if e.get("op", "").lower() == "write")
+        return {"read_bytes": read_b, "write_bytes": write_b}
+    except (KeyError, TypeError):
+        return {"read_bytes": 0, "write_bytes": 0}
+
+
 def _parse_memory(stats: dict) -> dict:
     """Extract memory usage and limit from raw Docker stats."""
     try:
@@ -222,14 +244,20 @@ def collect_container_data(container, with_stats: bool = True) -> dict:
         if finished and finished != "0001-01-01T00:00:00Z":
             last_crash = finished[:19].replace("T", " ") + " UTC"
 
-    # Stats (CPU + RAM) — stream=False returns a single snapshot
+    # Stats (CPU + RAM + network + blkio + pids)
     cpu_percent = 0.0
-    memory = {"usage_bytes": 0, "limit_bytes": 0, "percent": 0.0}
+    memory  = {"usage_bytes": 0, "limit_bytes": 0, "percent": 0.0}
+    network = {"rx_bytes": 0, "tx_bytes": 0}
+    blkio   = {"read_bytes": 0, "write_bytes": 0}
+    pids    = 0
     if with_stats and status == "running":
         try:
-            raw_stats = container.stats(stream=False)
+            raw_stats   = container.stats(stream=False)
             cpu_percent = _parse_cpu_percent(raw_stats)
-            memory = _parse_memory(raw_stats)
+            memory      = _parse_memory(raw_stats)
+            network     = _parse_network(raw_stats)
+            blkio       = _parse_blkio(raw_stats)
+            pids        = raw_stats.get("pids_stats", {}).get("current", 0) or 0
         except (APIError, Exception) as e:
             logger.warning("Stats error for %s: %s", container.name, e)
 
@@ -259,6 +287,9 @@ def collect_container_data(container, with_stats: bool = True) -> dict:
         "last_crash": last_crash,
         "cpu_percent": cpu_percent,
         "memory": memory,
+        "network": network,
+        "blkio": blkio,
+        "pids": pids,
         "logs": logs,
         "compose": compose_content,
         "labels": container.labels,
@@ -311,3 +342,70 @@ def get_container_compose(container_name: str) -> str:
         return f"Kontener '{container_name}' nie znaleziony."
     except Exception as e:
         return f"Błąd: {e}"
+
+
+def container_action(container_name: str, action: str) -> dict:
+    """Perform start / stop / restart on a container."""
+    try:
+        client = get_docker_client()
+        c = client.containers.get(container_name)
+        if action == "start":
+            c.start()
+        elif action == "stop":
+            c.stop(timeout=10)
+        elif action == "restart":
+            c.restart(timeout=10)
+        else:
+            return {"success": False, "error": f"Nieznana akcja: {action}"}
+        c.reload()
+        return {"success": True, "action": action, "status": c.status}
+    except NotFound:
+        return {"success": False, "error": f"Kontener '{container_name}' nie znaleziony."}
+    except (APIError, Exception) as e:
+        return {"success": False, "error": str(e)}
+
+
+def _find_compose_path(container) -> Optional[str]:
+    """Return the host-absolute path of the compose file for this container, or None."""
+    labels = container.labels or {}
+
+    config_files = labels.get("com.docker.compose.project.config_files", "")
+    if config_files:
+        path = config_files.split(",")[0].strip()
+        if path:
+            return path  # real host path (not translated)
+
+    working_dir = labels.get("com.docker.compose.project.working_dir", "")
+    if working_dir:
+        for fname in COMPOSE_FILENAMES:
+            candidate = os.path.join(working_dir, fname)
+            if os.path.exists(_hp(candidate)):
+                return candidate
+
+    name = container.name
+    for fname in COMPOSE_FILENAMES:
+        candidate = f"/etc/dockermind/{name}/{fname}"
+        if os.path.exists(candidate):
+            return candidate
+
+    return None
+
+
+def save_compose_file(container_name: str, content: str) -> dict:
+    """Write docker-compose content back to the host filesystem."""
+    try:
+        client = get_docker_client()
+        container = client.containers.get(container_name)
+        host_path = _find_compose_path(container)
+        if not host_path:
+            return {"success": False, "error": "Nie można określić ścieżki do pliku compose."}
+        write_path = _hp(host_path)
+        with open(write_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return {"success": True, "path": host_path}
+    except NotFound:
+        return {"success": False, "error": f"Kontener '{container_name}' nie znaleziony."}
+    except OSError as e:
+        return {"success": False, "error": f"Błąd zapisu: {e}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}

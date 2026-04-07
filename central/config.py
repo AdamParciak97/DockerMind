@@ -29,6 +29,14 @@ class Settings:
     # ── Server ────────────────────────────────────────────────────────────────
     CT_PORT: int = int(os.getenv("CT_PORT", "8080"))
 
+    # ── Email / SMTP ──────────────────────────────────────────────────────────
+    SMTP_HOST: str     = os.getenv("SMTP_HOST", "")
+    SMTP_PORT: int     = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USER: str     = os.getenv("SMTP_USER", "")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+    SMTP_FROM: str     = os.getenv("SMTP_FROM", "DockerMind")
+    SMTP_TLS: bool     = os.getenv("SMTP_TLS", "true").lower() == "true"
+
     # ── Database ──────────────────────────────────────────────────────────────
     DB_PATH: str = os.getenv("DB_PATH", "/app/data/dockermind.db")
     DATABASE_URL: str = f"sqlite:///{DB_PATH}"

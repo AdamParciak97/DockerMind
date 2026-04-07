@@ -12,6 +12,9 @@
 <script src="/static/chart.min.js"></script>
 <script src="/static/highlight.min.js"></script>
 <script src="/static/highlight-yaml.min.js"></script>
+<link rel="stylesheet" href="/static/xterm.css">
+<script src="/static/xterm.js"></script>
+<script src="/static/xterm-fit.js"></script>
 <script defer src="/static/alpine.min.js"></script>
 
 <style>
@@ -128,33 +131,102 @@
         </div>
       </template>
 
-      <template x-for="srv in sortedServers" :key="srv.agent_id">
-        <div @click="selectSrv(srv.agent_id)"
-          :class="selSrvId === srv.agent_id
-            ? 'bg-gray-800 border-gray-600'
-            : 'border-transparent hover:bg-gray-800/50'"
-          class="border rounded-xl p-3 mb-1.5 cursor-pointer transition-all duration-150">
+      <!-- Grouped servers -->
+      <template x-for="grp in groupedServers.groups" :key="grp.id">
+        <div class="mb-2">
+          <!-- Group header -->
+          <button @click="expandedGroups[grp.id] = !expandedGroups[grp.id]"
+            class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg
+                   text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 transition-colors text-xs">
+            <span x-text="expandedGroups[grp.id] ? '▾' : '▸'" class="flex-shrink-0 w-3"></span>
+            <span class="w-2 h-2 rounded-full flex-shrink-0"
+                  :style="`background:${grp.color}`"></span>
+            <span class="font-semibold uppercase tracking-wide flex-1 text-left truncate"
+                  x-text="grp.name"></span>
+            <span class="text-gray-600" x-text="grp.members.length"></span>
+          </button>
+          <!-- Group servers -->
+          <div x-show="expandedGroups[grp.id]" class="pl-2 mt-0.5 space-y-1">
+            <template x-for="srv in grp.members" :key="srv.agent_id">
+              <div @click="selectSrv(srv.agent_id); page='dashboard'"
+                :class="selSrvId===srv.agent_id ? 'bg-gray-800 border-gray-600' : 'border-transparent hover:bg-gray-800/50'"
+                class="border rounded-xl p-2.5 cursor-pointer transition-all duration-150">
+                <div class="flex items-center gap-2">
+                  <div :class="srvDot(srv)" class="w-2 h-2 rounded-full flex-shrink-0"></div>
+                  <div class="flex-1 min-w-0">
+                    <div class="font-semibold text-white text-xs truncate"
+                         x-text="srv.info?.agent_name || srv.agent_id"></div>
+                    <div class="text-gray-600 text-xs truncate" x-text="srv.info?.ip || ''"></div>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <template x-if="grp.members.length === 0">
+              <div class="text-gray-700 text-xs px-2 py-1">Brak serwerów</div>
+            </template>
+          </div>
+        </div>
+      </template>
 
-          <div class="flex items-center gap-2">
-            <div :class="srvDot(srv)" class="w-2.5 h-2.5 rounded-full flex-shrink-0"></div>
-            <div class="flex-1 min-w-0">
-              <div class="font-semibold text-white text-sm truncate"
-                   x-text="srv.info?.agent_name || srv.agent_id"></div>
-              <div class="text-gray-500 text-xs truncate"
-                   x-text="srv.info?.ip || ''"></div>
+      <!-- Ungrouped servers -->
+      <template x-if="groupedServers.ungrouped.length > 0">
+        <div class="mb-2">
+          <template x-if="groupedServers.groups.length > 0">
+            <div class="text-xs text-gray-700 uppercase tracking-wide px-2 py-1">Bez grupy</div>
+          </template>
+          <template x-for="srv in groupedServers.ungrouped" :key="srv.agent_id">
+            <div @click="selectSrv(srv.agent_id); page='dashboard'"
+              :class="selSrvId===srv.agent_id ? 'bg-gray-800 border-gray-600' : 'border-transparent hover:bg-gray-800/50'"
+              class="border rounded-xl p-3 mb-1 cursor-pointer transition-all duration-150">
+              <div class="flex items-center gap-2">
+                <div :class="srvDot(srv)" class="w-2.5 h-2.5 rounded-full flex-shrink-0"></div>
+                <div class="flex-1 min-w-0">
+                  <div class="font-semibold text-white text-sm truncate"
+                       x-text="srv.info?.agent_name || srv.agent_id"></div>
+                  <div class="text-gray-500 text-xs truncate" x-text="srv.info?.ip || ''"></div>
+                </div>
+              </div>
+              <div class="flex justify-between mt-1.5 text-xs text-gray-500">
+                <span x-text="`${(srv.containers||[]).length} kontenerów`"></span>
+                <span x-text="ago(srv.last_seen)"></span>
+              </div>
+              <template x-if="srvWarn(srv)">
+                <div class="text-yellow-500 text-xs mt-1">⚠ Restarty</div>
+              </template>
             </div>
-          </div>
-
-          <div class="flex justify-between mt-1.5 text-xs text-gray-500">
-            <span x-text="`${(srv.containers||[]).length} kontenerów`"></span>
-            <span x-text="ago(srv.last_seen)"></span>
-          </div>
-
-          <template x-if="srvWarn(srv)">
-            <div class="text-yellow-500 text-xs mt-1">⚠ Nieoczekiwane restarty</div>
           </template>
         </div>
       </template>
+    </div>
+
+    <!-- Bottom nav -->
+    <div class="px-3 pb-3 border-t border-gray-800 pt-2 space-y-0.5 flex-shrink-0">
+      <button @click="page='allalerts'; selCt=null; loadAllAlerts()"
+        :class="page==='allalerts' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800/50'"
+        class="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-colors">
+        <span>🔔</span>
+        <span class="flex-1 text-left">Alerty</span>
+        <span x-show="alertBadge > 0"
+              class="bg-red-600 text-white text-xs px-1.5 py-0.5 rounded-full min-w-[20px] text-center"
+              x-text="alertBadge"></span>
+      </button>
+      <button @click="page='secrets'; selSrvId=null; selCt=null; loadSecrets()"
+        :class="page==='secrets' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800/50'"
+        class="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-colors">
+        🔐 <span>Sekrety</span>
+      </button>
+      <button @click="page='settings'; selCt=null; loadSettings()"
+        :class="page==='settings' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800/50'"
+        class="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-colors">
+        ⚙ <span>Ustawienia</span>
+      </button>
+      <!-- User info -->
+      <div class="flex items-center gap-2 px-3 py-2 text-xs text-gray-600 border-t border-gray-800 mt-1 pt-2">
+        <span class="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"></span>
+        <span class="flex-1 truncate" x-text="me"></span>
+        <span x-show="myRole==='admin'" class="text-yellow-600 text-xs">admin</span>
+        <button @click="logout()" class="text-gray-700 hover:text-red-400 transition-colors ml-1">⏻</button>
+      </div>
     </div>
 
     <!-- User footer -->
@@ -216,8 +288,390 @@
     <!-- CONTENT -->
     <main class="flex-1 overflow-auto p-5">
 
+      <!-- ── ALL ALERTS PAGE ──────────────────────────────────────────── -->
+      <template x-if="page==='allalerts'">
+        <div class="max-w-4xl mx-auto">
+          <div class="flex items-center justify-between mb-5">
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+              🔔 Alerty
+              <span x-show="alertBadge > 0"
+                    class="bg-red-600 text-white text-xs px-2 py-0.5 rounded-full"
+                    x-text="alertBadge + ' aktywnych'"></span>
+            </h2>
+            <div class="flex items-center gap-2">
+              <select x-model="allAlertsFilter" @change="loadAllAlerts()"
+                class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5
+                       text-sm text-gray-200 focus:outline-none cursor-pointer">
+                <option value="">Wszystkie</option>
+                <option value="active">Aktywne</option>
+                <option value="acknowledged">Potwierdzone</option>
+              </select>
+              <button @click="loadAllAlerts()"
+                class="bg-gray-800 hover:bg-gray-700 text-gray-400 text-sm
+                       px-3 py-1.5 rounded-lg transition-colors">🔄</button>
+            </div>
+          </div>
+
+          <div x-show="allAlertsLoading" class="text-center py-12 text-gray-600">⏳</div>
+          <div x-show="!allAlertsLoading">
+            <template x-if="allAlerts.length === 0">
+              <div class="text-center py-16 text-gray-700">
+                <div class="text-4xl mb-3">✅</div>
+                <div>Brak alertów.</div>
+              </div>
+            </template>
+            <div class="space-y-2">
+              <template x-for="ev in allAlerts" :key="ev.id">
+                <div :class="ev.status==='active'
+                       ? 'border-red-900/60 bg-red-950/20'
+                       : 'border-gray-800 bg-gray-900/40'"
+                     class="border rounded-xl px-4 py-3 flex items-center gap-4">
+                  <span :class="ev.status==='active' ? 'bg-red-500 pdot' : 'bg-gray-600'"
+                        class="w-2.5 h-2.5 rounded-full flex-shrink-0"></span>
+                  <div class="flex-1 min-w-0 grid grid-cols-1 md:grid-cols-3 gap-1">
+                    <div>
+                      <div class="text-xs text-gray-500">Serwer / Kontener</div>
+                      <div class="text-sm text-gray-200 truncate">
+                        <span class="text-gray-500" x-text="ev.agent_id + ' / '"></span>
+                        <span class="font-medium" x-text="ev.container_name"></span>
+                      </div>
+                    </div>
+                    <div>
+                      <div class="text-xs text-gray-500">Metryka</div>
+                      <div class="text-sm text-yellow-400"
+                           x-text="`${ev.metric_label}: ${ev.value.toFixed(1)} (próg: ${ev.threshold})`"></div>
+                    </div>
+                    <div>
+                      <div class="text-xs text-gray-500">Czas</div>
+                      <div class="text-xs text-gray-400" x-text="fmtDt(ev.triggered_at)"></div>
+                      <div x-show="ev.ack_at"
+                           class="text-xs text-gray-600"
+                           x-text="ev.ack_at ? 'Potw.: ' + fmtDt(ev.ack_at) : ''"></div>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2 flex-shrink-0">
+                    <span :class="ev.status==='active'
+                            ? 'bg-red-950/60 text-red-400 border-red-900'
+                            : 'bg-gray-800 text-gray-500 border-gray-700'"
+                          class="text-xs px-2 py-0.5 rounded border"
+                          x-text="ev.status"></span>
+                    <button x-show="ev.status==='active'" @click="ackAlertGlobal(ev)"
+                      class="text-xs text-blue-500 hover:text-blue-400 bg-blue-950/40
+                             border border-blue-900/50 px-2 py-1 rounded-lg transition-colors">
+                      ✓ Potwierdź
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ── SETTINGS PAGE ──────────────────────────────────────────────── -->
+      <template x-if="page==='settings'">
+        <div class="max-w-3xl mx-auto">
+          <h2 class="text-lg font-bold text-white mb-5">⚙ Ustawienia</h2>
+
+          <!-- Settings tab nav -->
+          <div class="flex gap-1 mb-6 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit flex-wrap">
+            <button @click="settingsTab='password'"
+              :class="settingsTab==='password' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
+              class="px-4 py-1.5 rounded-lg text-sm transition-all">🔑 Hasło</button>
+            <button @click="settingsTab='users'; loadUsers()"
+              :class="settingsTab==='users' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
+              class="px-4 py-1.5 rounded-lg text-sm transition-all">👤 Użytkownicy</button>
+            <button @click="settingsTab='srvgroups'"
+              :class="settingsTab==='srvgroups' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
+              class="px-4 py-1.5 rounded-lg text-sm transition-all">🖥 Grupy serwerów</button>
+            <button @click="settingsTab='usrgroups'"
+              :class="settingsTab==='usrgroups' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
+              class="px-4 py-1.5 rounded-lg text-sm transition-all">👥 Grupy użytkowników</button>
+          </div>
+
+          <!-- ── Hasło ── -->
+          <div x-show="settingsTab==='password'">
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 max-w-md">
+              <div class="text-sm font-semibold text-gray-300 mb-4">Zmień hasło</div>
+              <div class="space-y-3">
+                <input x-model="pwForm.current" type="password" placeholder="Aktualne hasło"
+                  class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                         text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500">
+                <input x-model="pwForm.new1" type="password" placeholder="Nowe hasło"
+                  class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                         text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500">
+                <input x-model="pwForm.new2" type="password" placeholder="Powtórz nowe hasło"
+                  class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                         text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500">
+                <div x-show="pwForm.err"
+                     :class="pwForm.err.includes('.env') ? 'text-yellow-400' : 'text-red-400'"
+                     class="text-sm" x-text="pwForm.err"></div>
+                <div x-show="pwForm.ok" class="text-green-400 text-sm" x-text="pwForm.ok"></div>
+                <button @click="changePassword()"
+                  class="bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold
+                         px-5 py-2 rounded-lg transition-colors">
+                  Zmień hasło
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Użytkownicy ── -->
+          <div x-show="settingsTab==='users'">
+            <template x-if="myRole !== 'admin'">
+              <div class="text-gray-500 text-sm py-6">Tylko administrator może zarządzać użytkownikami.</div>
+            </template>
+            <template x-if="myRole === 'admin'">
+              <div>
+                <!-- Add user form -->
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-5">
+                  <div class="text-sm font-semibold text-gray-400 mb-3">Dodaj użytkownika</div>
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                    <input x-model="newUserForm.username" placeholder="Nazwa użytkownika"
+                      class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                             text-sm text-white placeholder-gray-600
+                             focus:outline-none focus:border-blue-500">
+                    <input x-model="newUserForm.password" type="password" placeholder="Hasło (min. 6)"
+                      class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                             text-sm text-white placeholder-gray-600
+                             focus:outline-none focus:border-blue-500">
+                    <select x-model="newUserForm.role"
+                      class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                             text-sm text-gray-200 focus:outline-none cursor-pointer">
+                      <option value="user">Użytkownik</option>
+                      <option value="admin">Administrator</option>
+                    </select>
+                  </div>
+                  <div x-show="newUserForm.err" class="text-red-400 text-sm mb-2" x-text="newUserForm.err"></div>
+                  <button @click="createUser()"
+                    :disabled="!newUserForm.username || !newUserForm.password"
+                    class="bg-blue-600 hover:bg-blue-500 disabled:opacity-40
+                           text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+                    + Dodaj użytkownika
+                  </button>
+                </div>
+                <!-- User list -->
+                <div x-show="usersLoading" class="text-center py-8 text-gray-600">⏳</div>
+                <div x-show="!usersLoading" class="space-y-2">
+                  <template x-for="u in users" :key="u.username">
+                    <div class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3
+                                flex items-center justify-between gap-3">
+                      <div class="flex items-center gap-3">
+                        <span class="text-gray-300 font-medium text-sm" x-text="u.username"></span>
+                        <span :class="u.role==='admin' ? 'bg-yellow-900/60 text-yellow-400 border-yellow-800' : 'bg-gray-800 text-gray-500 border-gray-700'"
+                              class="text-xs px-2 py-0.5 rounded border"
+                              x-text="u.role"></span>
+                        <span x-show="u.source==='env'"
+                              class="text-xs text-gray-600">(.env)</span>
+                      </div>
+                      <button x-show="u.source !== 'env' && u.username !== me"
+                        @click="deleteUser(u.username)"
+                        class="text-gray-600 hover:text-red-400 text-sm transition-colors">✕</button>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- ── Grupy serwerów ── -->
+          <div x-show="settingsTab==='srvgroups'">
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-5">
+              <div class="text-sm font-semibold text-gray-400 mb-3">Nowa grupa serwerów</div>
+              <div class="flex gap-3 items-end flex-wrap">
+                <input x-model="newSrvGroupForm.name" placeholder="Nazwa grupy"
+                  class="flex-1 min-w-[150px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                         text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500">
+                <div class="flex items-center gap-2">
+                  <label class="text-xs text-gray-500">Kolor:</label>
+                  <input type="color" x-model="newSrvGroupForm.color"
+                    class="w-8 h-8 rounded cursor-pointer bg-gray-800 border border-gray-700">
+                </div>
+                <button @click="createSrvGroup()" :disabled="!newSrvGroupForm.name"
+                  class="bg-blue-600 hover:bg-blue-500 disabled:opacity-40
+                         text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+                  + Dodaj
+                </button>
+              </div>
+              <div x-show="newSrvGroupForm.err" class="text-red-400 text-sm mt-2" x-text="newSrvGroupForm.err"></div>
+            </div>
+
+            <div class="space-y-3">
+              <template x-for="grp in serverGroups" :key="grp.id">
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                  <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-3">
+                      <span class="w-3 h-3 rounded-full flex-shrink-0"
+                            :style="`background:${grp.color}`"></span>
+                      <span class="font-semibold text-white text-sm" x-text="grp.name"></span>
+                      <span class="text-xs text-gray-500"
+                            x-text="`${grp.members.length} serwerów`"></span>
+                    </div>
+                    <button @click="deleteSrvGroup(grp.id)"
+                      class="text-gray-600 hover:text-red-400 text-sm transition-colors">✕ Usuń</button>
+                  </div>
+                  <!-- Member assignment -->
+                  <div class="space-y-1.5">
+                    <template x-for="srv in sortedServers" :key="srv.agent_id">
+                      <label class="flex items-center gap-2 cursor-pointer text-sm">
+                        <input type="checkbox"
+                          :checked="grp.members.includes(srv.agent_id)"
+                          @change="toggleSrvGroupMember(grp, srv.agent_id)"
+                          class="rounded border-gray-600 bg-gray-800 text-blue-500">
+                        <span class="text-gray-300"
+                              x-text="srv.info?.agent_name || srv.agent_id"></span>
+                        <span class="text-gray-600 text-xs" x-text="srv.info?.ip || ''"></span>
+                      </label>
+                    </template>
+                    <template x-if="sortedServers.length === 0">
+                      <div class="text-gray-700 text-xs">Brak połączonych agentów.</div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+              <template x-if="serverGroups.length === 0">
+                <div class="text-center py-8 text-gray-700 text-sm">Brak grup. Dodaj pierwszą powyżej.</div>
+              </template>
+            </div>
+          </div>
+
+          <!-- ── Grupy użytkowników ── -->
+          <div x-show="settingsTab==='usrgroups'">
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-5">
+              <div class="text-sm font-semibold text-gray-400 mb-3">Nowa grupa użytkowników</div>
+              <div class="flex gap-3 items-end flex-wrap">
+                <input x-model="newUsrGroupForm.name" placeholder="Nazwa grupy"
+                  class="flex-1 min-w-[150px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                         text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500">
+                <button @click="createUsrGroup()" :disabled="!newUsrGroupForm.name"
+                  class="bg-blue-600 hover:bg-blue-500 disabled:opacity-40
+                         text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+                  + Dodaj
+                </button>
+              </div>
+              <div x-show="newUsrGroupForm.err" class="text-red-400 text-sm mt-2" x-text="newUsrGroupForm.err"></div>
+            </div>
+
+            <div class="space-y-3">
+              <template x-for="grp in userGroups" :key="grp.id">
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                  <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-2">
+                      <span class="font-semibold text-white text-sm" x-text="grp.name"></span>
+                      <span class="text-xs text-gray-500"
+                            x-text="`${grp.members.length} użytkowników`"></span>
+                    </div>
+                    <button @click="deleteUsrGroup(grp.id)"
+                      class="text-gray-600 hover:text-red-400 text-sm transition-colors">✕ Usuń</button>
+                  </div>
+                  <div class="space-y-1.5">
+                    <template x-for="u in users.filter(u=>u.source!=='env')" :key="u.username">
+                      <label class="flex items-center gap-2 cursor-pointer text-sm">
+                        <input type="checkbox"
+                          :checked="grp.members.includes(u.username)"
+                          @change="toggleUsrGroupMember(grp, u.username)"
+                          class="rounded border-gray-600 bg-gray-800 text-blue-500">
+                        <span class="text-gray-300" x-text="u.username"></span>
+                        <span :class="u.role==='admin' ? 'text-yellow-600' : 'text-gray-600'"
+                              class="text-xs" x-text="u.role"></span>
+                      </label>
+                    </template>
+                    <template x-if="users.filter(u=>u.source!=='env').length===0">
+                      <div class="text-gray-700 text-xs">Brak użytkowników DB. Utwórz konto w zakładce Użytkownicy.</div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+              <template x-if="userGroups.length === 0">
+                <div class="text-center py-8 text-gray-700 text-sm">Brak grup użytkowników.</div>
+              </template>
+            </div>
+          </div>
+
+        </div>
+      </template>
+
+      <!-- ── SEKRETY PAGE ──────────────────────────────────────────────── -->
+      <template x-if="page==='secrets'">
+        <div class="max-w-2xl mx-auto">
+          <h2 class="text-lg font-bold text-white mb-5 flex items-center gap-2">
+            🔐 Sekrety
+            <span class="text-xs text-gray-500 font-normal">szyfrowane lokalnie w bazie danych</span>
+          </h2>
+
+          <!-- Add form -->
+          <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-5">
+            <div class="text-sm font-semibold text-gray-400 mb-3">Dodaj sekret</div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              <input x-model="secretForm.name" placeholder="NAZWA_SEKRETU"
+                class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                       text-sm text-white font-mono placeholder-gray-600
+                       focus:outline-none focus:border-blue-500">
+              <input x-model="secretForm.value" type="password" placeholder="wartość"
+                class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                       text-sm text-white placeholder-gray-600
+                       focus:outline-none focus:border-blue-500">
+            </div>
+            <input x-model="secretForm.description" placeholder="Opis (opcjonalny)"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                     text-sm text-gray-300 placeholder-gray-600 mb-3
+                     focus:outline-none focus:border-blue-500">
+            <button @click="createSecret()"
+              :disabled="!secretForm.name || !secretForm.value"
+              class="bg-blue-600 hover:bg-blue-500 disabled:opacity-40
+                     text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+              + Dodaj sekret
+            </button>
+          </div>
+
+          <!-- List -->
+          <div x-show="secretsLoading" class="text-center py-10 text-gray-600">⏳</div>
+          <div x-show="!secretsLoading" class="space-y-2">
+            <template x-if="secrets.length === 0">
+              <div class="text-center py-10 text-gray-700 text-sm">Brak sekretów.</div>
+            </template>
+            <template x-for="s in secrets" :key="s.id">
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="flex-1 min-w-0">
+                    <div class="font-mono text-sm text-green-400" x-text="s.name"></div>
+                    <div class="text-xs text-gray-500" x-text="s.description || '—'"></div>
+                  </div>
+                  <div class="flex items-center gap-2 flex-shrink-0">
+                    <button @click="revealSecret(s.id)"
+                      class="text-xs text-gray-500 hover:text-yellow-400 transition-colors px-2 py-1
+                             bg-gray-800 rounded-lg">
+                      👁 Pokaż
+                    </button>
+                    <button @click="clipSecret(s.id)"
+                      class="text-xs text-gray-500 hover:text-blue-400 transition-colors px-2 py-1
+                             bg-gray-800 rounded-lg">
+                      📋 Kopiuj
+                    </button>
+                    <button @click="deleteSecret(s.id)"
+                      class="text-xs text-gray-700 hover:text-red-400 transition-colors">✕</button>
+                  </div>
+                </div>
+                <!-- Revealed value -->
+                <template x-if="secretReveal.id === s.id && secretReveal.value">
+                  <div class="mt-2 bg-gray-950 border border-yellow-900/50 rounded-lg px-3 py-2
+                              flex items-center justify-between gap-2">
+                    <span class="font-mono text-yellow-300 text-sm break-all"
+                          x-text="secretReveal.value"></span>
+                    <button @click="secretReveal={id:null,value:''}"
+                      class="text-gray-600 hover:text-gray-400 text-xs flex-shrink-0">✕</button>
+                  </div>
+                </template>
+                <div class="text-xs text-gray-700 mt-1"
+                     x-text="`Dodano: ${fmtDt(s.created_at)}`"></div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
       <!-- ── WELCOME ─────────────────────────────────────────────────────── -->
-      <template x-if="!selSrvId">
+      <template x-if="!selSrvId && page==='dashboard'">
         <div class="flex flex-col items-center justify-center h-full text-center select-none">
           <div class="text-7xl mb-5 opacity-30">🐳</div>
           <div class="text-xl text-gray-600 font-semibold">DockerMind</div>
@@ -226,7 +680,7 @@
       </template>
 
       <!-- ── SERVER VIEW ─────────────────────────────────────────────────── -->
-      <template x-if="selSrvId && !selCt">
+      <template x-if="selSrvId && !selCt && page==='dashboard'">
         <div>
           <!-- Server info card -->
           <template x-if="selSrv">
@@ -265,7 +719,140 @@
                   <div>CPUs: <span class="text-gray-400" x-text="selSrv.info?.cpus || '—'"></span></div>
                   <div>RAM: <span class="text-gray-400" x-text="fmtB(selSrv.info?.total_memory||0)"></span></div>
                   <div class="mt-1">Ostatnio: <span x-text="ago(selSrv.last_seen)"></span></div>
+                  <div class="text-gray-600 text-xs mt-1">v1.1</div>
                 </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Bulk actions toolbar -->
+          <div class="flex items-center gap-3 mb-4">
+            <button @click="bulkMode=!bulkMode; bulkSelected={}"
+              :class="bulkMode ? 'bg-blue-900/60 border-blue-700 text-blue-300' : 'bg-gray-800 text-gray-400'"
+              class="border border-gray-700 text-xs px-3 py-1.5 rounded-lg transition-colors">
+              ☑ Tryb wyboru
+            </button>
+            <template x-if="bulkMode && Object.keys(bulkSelected).length > 0">
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-400"
+                      x-text="`Wybrano: ${Object.keys(bulkSelected).length}`"></span>
+                <button @click="bulkAction('start')" :disabled="bulkLoading"
+                  class="bg-green-950/60 border border-green-900 text-green-400
+                         text-xs px-3 py-1.5 rounded-lg disabled:opacity-40">▶ Start</button>
+                <button @click="bulkAction('stop')" :disabled="bulkLoading"
+                  class="bg-red-950/60 border border-red-900 text-red-400
+                         text-xs px-3 py-1.5 rounded-lg disabled:opacity-40">⏹ Stop</button>
+                <button @click="bulkAction('restart')" :disabled="bulkLoading"
+                  class="bg-yellow-950/60 border border-yellow-900 text-yellow-400
+                         text-xs px-3 py-1.5 rounded-lg disabled:opacity-40">🔄 Restart</button>
+                <button @click="bulkSelected={}"
+                  class="text-gray-600 hover:text-gray-400 text-xs">✕ Wyczyść</button>
+              </div>
+            </template>
+          </div>
+
+          <!-- All-containers metrics charts -->
+          <template x-if="(selSrv?.containers||[]).filter(c=>c.status==='running').length > 0">
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-5">
+              <div class="text-sm font-semibold text-gray-400 mb-4">📊 Metryki — wszystkie kontenery</div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <div class="text-xs text-gray-500 mb-2">CPU %</div>
+                  <div :style="`height:${Math.max(120,(selSrv?.containers||[]).filter(c=>c.status==='running').length*28+20)}px`">
+                    <canvas id="chart-srv-cpu"></canvas>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-xs text-gray-500 mb-2">RAM %</div>
+                  <div :style="`height:${Math.max(120,(selSrv?.containers||[]).filter(c=>c.status==='running').length*28+20)}px`">
+                    <canvas id="chart-srv-ram"></canvas>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-xs text-gray-500 mb-2">Sieć RX (odebrane)</div>
+                  <div :style="`height:${Math.max(120,(selSrv?.containers||[]).filter(c=>c.status==='running').length*28+20)}px`">
+                    <canvas id="chart-srv-rx"></canvas>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-xs text-gray-500 mb-2">Sieć TX (wysłane)</div>
+                  <div :style="`height:${Math.max(120,(selSrv?.containers||[]).filter(c=>c.status==='running').length*28+20)}px`">
+                    <canvas id="chart-srv-tx"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Comparison charts tile -->
+          <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-5">
+            <div class="flex items-center justify-between mb-4">
+              <div class="text-sm font-semibold text-gray-400">🔀 Porównanie kontenerów</div>
+              <div class="flex items-center gap-2">
+                <template x-for="h in [1,3,6,24]" :key="h">
+                  <button @click="cmpHours=h; loadComparison()"
+                    :class="cmpHours===h ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-400'"
+                    class="text-xs px-2 py-1 rounded-lg transition-colors"
+                    x-text="h+'h'"></button>
+                </template>
+                <button @click="loadComparison()"
+                  class="text-xs text-gray-600 hover:text-gray-400 ml-1">🔄</button>
+              </div>
+            </div>
+            <div x-show="cmpLoading" class="text-center py-8 text-gray-600">⏳ Pobieranie danych...</div>
+            <template x-if="!cmpLoading && cmpData.length === 0">
+              <div class="text-center py-6 text-gray-700 text-sm">
+                Kliknij zakres czasu żeby załadować dane. Dane zbierane co ~30s.
+              </div>
+            </template>
+            <div x-show="!cmpLoading && cmpData.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="bg-gray-950/60 rounded-xl p-3">
+                <div class="text-xs text-gray-500 mb-2">CPU % — wszystkie kontenery</div>
+                <div class="h-48"><canvas id="chart-cmp-cpu"></canvas></div>
+              </div>
+              <div class="bg-gray-950/60 rounded-xl p-3">
+                <div class="text-xs text-gray-500 mb-2">RAM % — wszystkie kontenery</div>
+                <div class="h-48"><canvas id="chart-cmp-ram"></canvas></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active alerts tile -->
+          <template x-if="srvAlerts.length > 0 || srvAlertsLoading">
+            <div class="bg-gray-900 border border-red-900/50 rounded-2xl p-5 mb-5">
+              <div class="flex items-center justify-between mb-3">
+                <div class="text-sm font-semibold text-red-400 flex items-center gap-2">
+                  ⚠ Aktywne alerty
+                  <span class="bg-red-900/60 text-red-300 text-xs px-2 py-0.5 rounded-full"
+                        x-text="srvAlerts.length"></span>
+                </div>
+                <button @click="loadServerAlerts()"
+                  class="text-xs text-gray-600 hover:text-gray-400 transition-colors">🔄</button>
+              </div>
+              <div x-show="srvAlertsLoading" class="text-center py-4 text-gray-600 text-sm">⏳</div>
+              <div x-show="!srvAlertsLoading" class="space-y-2">
+                <template x-for="ev in srvAlerts" :key="ev.id">
+                  <div class="flex items-center justify-between gap-3 bg-gray-950/60
+                               border border-gray-800 rounded-xl px-3 py-2">
+                    <div class="flex items-center gap-2 min-w-0">
+                      <span class="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 pdot"></span>
+                      <span class="text-xs font-mono text-gray-300 truncate"
+                            x-text="ev.container_name"></span>
+                      <span class="text-xs text-yellow-400 flex-shrink-0"
+                            x-text="ev.metric_label"></span>
+                      <span class="text-xs text-gray-500 flex-shrink-0"
+                            x-text="`= ${ev.value.toFixed(1)} (próg: ${ev.threshold})`"></span>
+                    </div>
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                      <span class="text-xs text-gray-700"
+                            x-text="fmtDt(ev.triggered_at)"></span>
+                      <button @click="openCt(selSrv.containers.find(c=>c.name===ev.container_name)||{name:ev.container_name},'alerts')"
+                        class="text-xs text-blue-500 hover:text-blue-400 transition-colors">
+                        Szczegóły →
+                      </button>
+                    </div>
+                  </div>
+                </template>
               </div>
             </div>
           </template>
@@ -273,14 +860,23 @@
           <!-- Container grid -->
           <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             <template x-for="ct in selSrv?.containers || []" :key="ct.name">
-              <div class="bg-gray-900 border border-gray-800 hover:border-gray-600
-                           rounded-2xl p-4 transition-colors duration-200 flex flex-col">
+              <div @click="openCt(ct,'overview')"
+                   class="bg-gray-900 border border-gray-800 hover:border-gray-600
+                          rounded-2xl p-4 transition-colors duration-200 flex flex-col cursor-pointer">
 
                 <!-- Header -->
                 <div class="flex items-start justify-between mb-2">
-                  <div class="flex-1 min-w-0 mr-2">
-                    <div class="font-bold text-white truncate text-sm" x-text="ct.name"></div>
-                    <div class="text-gray-500 text-xs truncate" x-text="ct.image"></div>
+                  <div class="flex items-center gap-2 flex-1 min-w-0 mr-2">
+                    <template x-if="bulkMode">
+                      <input type="checkbox"
+                        :checked="!!bulkSelected[selSrvId+'/'+ct.name]"
+                        @click.stop="toggleBulk(selSrvId, ct.name)"
+                        class="rounded border-gray-600 bg-gray-800 text-blue-500 flex-shrink-0">
+                    </template>
+                    <div class="min-w-0">
+                      <div class="font-bold text-white truncate text-sm" x-text="ct.name"></div>
+                      <div class="text-gray-500 text-xs truncate" x-text="ct.image"></div>
+                    </div>
                   </div>
                   <div class="flex flex-col items-end gap-1 flex-shrink-0">
                     <span :class="stBadge(ct.status)"
@@ -325,15 +921,38 @@
 
                 <!-- Buttons -->
                 <div class="flex gap-2 mt-auto">
-                  <button @click="openCt(ct,'logs')"
+                  <button @click.stop="openCt(ct,'logs')"
                     class="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300
                            text-xs py-1.5 rounded-lg transition-colors">
                     📋 Logi
                   </button>
-                  <button @click="openCt(ct,'analysis')"
+                  <button @click.stop="openCt(ct,'analysis')"
                     class="flex-1 bg-blue-950/60 hover:bg-blue-900/60 text-blue-400
                            text-xs py-1.5 rounded-lg transition-colors border border-blue-900/50">
                     🔍 Analizuj
+                  </button>
+                </div>
+                <!-- Container action buttons -->
+                <div class="flex gap-1 mt-2">
+                  <button x-show="ct.status !== 'running'"
+                    @click.stop="doAction(ct.name,'start')"
+                    :disabled="ctActionLoading === ct.name+'-start'"
+                    class="flex-1 bg-green-950/60 hover:bg-green-900/60 border border-green-900/50
+                           text-green-400 text-xs py-1 rounded-lg transition-colors disabled:opacity-40">
+                    ▶ Start
+                  </button>
+                  <button x-show="ct.status === 'running'"
+                    @click.stop="doAction(ct.name,'stop')"
+                    :disabled="ctActionLoading === ct.name+'-stop'"
+                    class="flex-1 bg-red-950/60 hover:bg-red-900/60 border border-red-900/50
+                           text-red-400 text-xs py-1 rounded-lg transition-colors disabled:opacity-40">
+                    ⏹ Stop
+                  </button>
+                  <button @click.stop="doAction(ct.name,'restart')"
+                    :disabled="ctActionLoading === ct.name+'-restart'"
+                    class="flex-1 bg-yellow-950/60 hover:bg-yellow-900/60 border border-yellow-900/50
+                           text-yellow-400 text-xs py-1 rounded-lg transition-colors disabled:opacity-40">
+                    🔄 Restart
                   </button>
                 </div>
               </div>
@@ -353,21 +972,48 @@
       <!-- ── CONTAINER DETAIL ────────────────────────────────────────────── -->
       <template x-if="selCt">
         <div>
-          <!-- Breadcrumb -->
-          <div class="flex items-center gap-2 mb-5 text-sm flex-wrap">
-            <button @click="selCt = null; dCharts()"
-              class="text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1">
-              ← <span x-text="selSrv?.info?.agent_name || selSrvId"></span>
-            </button>
-            <span class="text-gray-700">/</span>
-            <span class="font-semibold text-white" x-text="selCt.name"></span>
-            <span :class="stBadge(selCt.status)"
-                  class="text-xs px-2 py-0.5 rounded border"
-                  x-text="selCt.status"></span>
-            <span x-show="(selCt.restart_count||0) > 0"
-                  class="text-xs text-yellow-500">
-              ↺ <span x-text="selCt.restart_count"></span> restartów
-            </span>
+          <!-- Breadcrumb + container actions -->
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+            <div class="flex items-center gap-2 text-sm flex-wrap">
+              <button @click="backToServer()"
+                class="text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1">
+                ← <span x-text="selSrv?.info?.agent_name || selSrvId"></span>
+              </button>
+              <span class="text-gray-700">/</span>
+              <span class="font-semibold text-white" x-text="selCt.name"></span>
+              <span :class="stBadge(selCt.status)"
+                    class="text-xs px-2 py-0.5 rounded border"
+                    x-text="selCt.status"></span>
+              <span x-show="(selCt.restart_count||0) > 0"
+                    class="text-xs text-yellow-500">
+                ↺ <span x-text="selCt.restart_count"></span> restartów
+              </span>
+            </div>
+            <!-- Action buttons -->
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <button x-show="selCt.status !== 'running'"
+                @click="doAction(selCt.name,'start')"
+                :disabled="!!ctActionLoading"
+                class="bg-green-950/60 hover:bg-green-900/60 border border-green-900
+                       text-green-400 text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40">
+                ▶ Start
+              </button>
+              <button x-show="selCt.status === 'running'"
+                @click="doAction(selCt.name,'stop')"
+                :disabled="!!ctActionLoading"
+                class="bg-red-950/60 hover:bg-red-900/60 border border-red-900
+                       text-red-400 text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40">
+                ⏹ Stop
+              </button>
+              <button @click="doAction(selCt.name,'restart')"
+                :disabled="!!ctActionLoading"
+                class="bg-yellow-950/60 hover:bg-yellow-900/60 border border-yellow-900
+                       text-yellow-400 text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40">
+                🔄 Restart
+              </button>
+              <span x-show="!!ctActionLoading"
+                    class="text-xs text-gray-500 animate-pulse ml-1">Wykonywanie...</span>
+            </div>
           </div>
 
           <!-- Tab nav -->
@@ -381,6 +1027,117 @@
                 x-text="tab.lbl">
               </button>
             </template>
+          </div>
+
+          <!-- ╔═══════════════════╗ -->
+          <!-- ║   TAB: PRZEGLĄD  ║ -->
+          <!-- ╚═══════════════════╝ -->
+          <div x-show="curTab==='overview'">
+
+            <!-- Metrics grid -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">Status</div>
+                <span :class="stBadge(selCt.status)"
+                      class="text-xs px-2 py-0.5 rounded border"
+                      x-text="selCt.status"></span>
+              </div>
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">Uptime</div>
+                <div class="text-gray-200 text-sm" x-text="selCt.uptime || '—'"></div>
+              </div>
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">CPU</div>
+                <div class="text-gray-200 font-mono" x-text="`${selCt.cpu_percent||0}%`"></div>
+                <div class="bg-gray-800 rounded-full h-1 mt-1.5">
+                  <div :class="cpuClr(selCt.cpu_percent)"
+                       class="h-1 rounded-full bar"
+                       :style="`width:${Math.min(selCt.cpu_percent||0,100)}%`"></div>
+                </div>
+              </div>
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">RAM</div>
+                <div class="text-gray-200 text-xs font-mono" x-text="fmtRam(selCt.memory)"></div>
+                <div class="bg-gray-800 rounded-full h-1 mt-1.5">
+                  <div :class="ramClr(selCt.memory?.percent||0)"
+                       class="h-1 rounded-full bar"
+                       :style="`width:${Math.min(selCt.memory?.percent||0,100)}%`"></div>
+                </div>
+              </div>
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">Restarty</div>
+                <div :class="(selCt.restart_count||0)>3?'text-red-400 font-bold':'text-gray-200'"
+                     x-text="selCt.restart_count||0"></div>
+              </div>
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">PIDs</div>
+                <div class="text-gray-200" x-text="selCt.pids||'—'"></div>
+              </div>
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">Sieć RX</div>
+                <div class="text-gray-200 text-xs font-mono" x-text="fmtB(selCt.network?.rx_bytes||0)"></div>
+              </div>
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">Sieć TX</div>
+                <div class="text-gray-200 text-xs font-mono" x-text="fmtB(selCt.network?.tx_bytes||0)"></div>
+              </div>
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">Dysk odczyt</div>
+                <div class="text-gray-200 text-xs font-mono" x-text="fmtB(selCt.blkio?.read_bytes||0)"></div>
+              </div>
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">Dysk zapis</div>
+                <div class="text-gray-200 text-xs font-mono" x-text="fmtB(selCt.blkio?.write_bytes||0)"></div>
+              </div>
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">Exit code</div>
+                <div :class="(selCt.exit_code||0)!==0?'text-red-400':'text-gray-200'"
+                     x-text="selCt.exit_code??'—'"></div>
+              </div>
+              <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                <div class="text-xs text-gray-600 uppercase mb-1">Obraz</div>
+                <div class="text-gray-400 text-xs truncate" x-text="selCt.image||'—'"></div>
+              </div>
+            </div>
+
+            <!-- Last crash -->
+            <template x-if="selCt.last_crash">
+              <div class="bg-red-950/40 border border-red-900 rounded-xl p-3 mb-4 text-sm text-red-300">
+                ⚠ Ostatnia awaria: <span class="font-mono" x-text="selCt.last_crash"></span>
+                · kod wyjścia: <span class="font-bold" x-text="selCt.exit_code"></span>
+              </div>
+            </template>
+
+            <!-- Compose inline -->
+            <div class="mt-2">
+              <div class="flex items-center justify-between mb-3">
+                <div class="text-sm font-semibold text-gray-400">📄 docker-compose.yml</div>
+                <div class="flex gap-2">
+                  <button x-show="compose && !compose.startsWith('Plik') && !compose.startsWith('Błąd') && !cmpEditing"
+                    @click="switchTab('compose'); $nextTick(()=>startEditCompose())"
+                    class="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                    ✏️ Edytuj
+                  </button>
+                  <button @click="switchTab('compose')"
+                    class="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+                    Przejdź do zakładki →
+                  </button>
+                </div>
+              </div>
+              <div x-show="cmpLoading" class="text-center py-6 text-gray-600 text-sm">⏳ Pobieranie...</div>
+              <div x-show="!cmpLoading">
+                <template x-if="!compose || compose.startsWith('Plik') || compose.startsWith('Błąd') || compose.startsWith('Kontener')">
+                  <div class="text-gray-600 text-sm py-4 text-center">
+                    📄 <span x-text="compose || 'Plik docker-compose.yml nie został znaleziony.'"></span>
+                  </div>
+                </template>
+                <template x-if="compose && !compose.startsWith('Plik') && !compose.startsWith('Błąd') && !compose.startsWith('Kontener')">
+                  <pre class="bg-gray-950 border border-gray-800 rounded-2xl p-4
+                              overflow-x-auto text-xs leading-relaxed max-h-64 text-gray-300"
+                       x-text="compose"></pre>
+                </template>
+              </div>
+            </div>
           </div>
 
           <!-- ╔═══════════════╗ -->
@@ -456,16 +1213,52 @@
                 </div>
               </template>
               <template x-if="compose && !compose.startsWith('Plik') && !compose.startsWith('Błąd') && !compose.startsWith('Kontener')">
-                <div class="relative">
-                  <button @click="clip(compose)"
-                    class="absolute top-3 right-3 z-10 bg-gray-700 hover:bg-gray-600
-                           text-xs text-gray-300 px-3 py-1 rounded transition-colors">
-                    📋 Kopiuj
-                  </button>
-                  <pre id="compose-pre"
-                    class="bg-gray-950 border border-gray-800 rounded-2xl p-5
-                           overflow-x-auto text-sm leading-relaxed"><code
-                    class="language-yaml" x-text="compose"></code></pre>
+                <div>
+                  <!-- Toolbar -->
+                  <div class="flex items-center gap-2 mb-3">
+                    <button x-show="!cmpEditing" @click="startEditCompose()"
+                      class="bg-blue-950/60 hover:bg-blue-900/60 border border-blue-900
+                             text-blue-400 text-sm px-3 py-1.5 rounded-lg transition-colors">
+                      ✏️ Edytuj
+                    </button>
+                    <button x-show="cmpEditing" @click="saveCompose()"
+                      :disabled="cmpSaving"
+                      class="bg-green-950/60 hover:bg-green-900/60 border border-green-900
+                             text-green-400 text-sm px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40">
+                      <span x-show="cmpSaving" class="animate-spin inline-block mr-1">⟳</span>
+                      💾 Zapisz na hoście
+                    </button>
+                    <button x-show="cmpEditing" @click="cancelEditCompose()"
+                      class="bg-gray-800 hover:bg-gray-700 text-gray-400
+                             text-sm px-3 py-1.5 rounded-lg transition-colors">
+                      ✕ Anuluj
+                    </button>
+                    <button x-show="!cmpEditing" @click="clip(compose)"
+                      class="bg-gray-800 hover:bg-gray-700 text-gray-400
+                             text-sm px-3 py-1.5 rounded-lg transition-colors">
+                      📋 Kopiuj
+                    </button>
+                    <span x-show="cmpEditing"
+                          class="text-xs text-yellow-500 ml-2">
+                      ⚠ Zmiany zostaną zapisane bezpośrednio na hoście
+                    </span>
+                  </div>
+                  <!-- View mode -->
+                  <div x-show="!cmpEditing" class="relative">
+                    <pre id="compose-pre"
+                      class="bg-gray-950 border border-gray-800 rounded-2xl p-5
+                             overflow-x-auto text-sm leading-relaxed"><code
+                      class="language-yaml" x-text="compose"></code></pre>
+                  </div>
+                  <!-- Edit mode -->
+                  <div x-show="cmpEditing">
+                    <textarea x-model="cmpEditContent"
+                      class="w-full bg-gray-950 border border-blue-700 rounded-2xl p-5
+                             text-sm font-mono text-gray-200 leading-relaxed
+                             focus:outline-none focus:border-blue-500
+                             resize-none h-96 md:h-[32rem]"
+                      spellcheck="false"></textarea>
+                  </div>
                 </div>
               </template>
             </div>
@@ -525,10 +1318,25 @@
 
             <!-- Streaming response -->
             <template x-if="aiContent">
-              <div id="analysis-stream"
-                class="bg-gray-950 border border-gray-800 rounded-2xl p-5 mb-5
-                       overflow-y-auto max-h-[32rem] analysis text-sm">
-                <div x-html="renderAnalysis(aiContent)"></div>
+              <div>
+                <div id="analysis-stream"
+                  class="bg-gray-950 border border-gray-800 rounded-2xl p-5 mb-3
+                         overflow-y-auto max-h-[32rem] analysis text-sm">
+                  <div x-html="renderAnalysis(aiContent)"></div>
+                </div>
+                <!-- PDF / email actions for current analysis -->
+                <div x-show="!aiRunning && currentAnalysisId" class="flex gap-2 mb-5">
+                  <button @click="dlPdf(currentAnalysisId)"
+                    class="bg-blue-950/60 hover:bg-blue-900/60 border border-blue-900
+                           text-blue-400 text-sm px-4 py-2 rounded-xl transition-colors">
+                    📄 Pobierz PDF
+                  </button>
+                  <button @click="openEmailModal(currentAnalysisId)"
+                    class="bg-green-950/60 hover:bg-green-900/60 border border-green-900
+                           text-green-400 text-sm px-4 py-2 rounded-xl transition-colors">
+                    📧 Wyślij email
+                  </button>
+                </div>
               </div>
             </template>
 
@@ -559,8 +1367,14 @@
                             x-text="a.risk_level"></span>
                       <span class="text-sm text-gray-400 truncate" x-text="a.first_line||'...'"></span>
                     </div>
-                    <div class="flex items-center gap-3 flex-shrink-0 ml-2">
+                    <div class="flex items-center gap-2 flex-shrink-0 ml-2">
                       <span class="text-xs text-gray-600" x-text="fmtDt(a.created_at)"></span>
+                      <button @click.stop="dlPdf(a.id)"
+                        class="text-gray-600 hover:text-blue-400 transition-colors text-xs"
+                        title="Pobierz PDF">📄</button>
+                      <button @click.stop="openEmailModal(a.id)"
+                        class="text-gray-600 hover:text-green-400 transition-colors text-xs"
+                        title="Wyślij email">📧</button>
                       <button @click.stop="delAnalysis(a.id)"
                         class="text-gray-700 hover:text-red-400 transition-colors text-xs">✕</button>
                       <span class="text-gray-600 text-xs" x-text="a._open ? '▲' : '▼'"></span>
@@ -592,7 +1406,46 @@
               ⏳ Ładowanie historii...
             </div>
             <div x-show="!histLoading">
-              <!-- Charts row -->
+              <!-- Time-series selector -->
+              <div class="flex items-center gap-2 mb-4">
+                <span class="text-xs text-gray-500">Zakres:</span>
+                <template x-for="h in [3,6,12,24,48,168]" :key="h">
+                  <button @click="histHours=h; loadHistory()"
+                    :class="histHours===h ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-400'"
+                    class="text-xs px-2 py-1 rounded-lg transition-colors"
+                    x-text="h < 24 ? h+'h' : (h/24)+'d'"></button>
+                </template>
+              </div>
+
+              <!-- Time-series charts -->
+              <template x-if="!histMetrics || !histMetrics.points || histMetrics.points.length === 0">
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-4 text-center">
+                  <div class="text-2xl mb-2">📈</div>
+                  <div class="text-gray-500 text-sm">Brak danych metrycznych dla tego zakresu.</div>
+                  <div class="text-gray-700 text-xs mt-1">Dane są zbierane co ~30 sekund po zalogowaniu agenta.</div>
+                </div>
+              </template>
+              <div x-show="histMetrics && histMetrics.points && histMetrics.points.length > 0"
+                   class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                  <div class="text-sm text-gray-500 mb-3">CPU % (czas)</div>
+                  <div class="h-40"><canvas id="chart-ts-cpu"></canvas></div>
+                </div>
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                  <div class="text-sm text-gray-500 mb-3">RAM % (czas)</div>
+                  <div class="h-40"><canvas id="chart-ts-ram"></canvas></div>
+                </div>
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                  <div class="text-sm text-gray-500 mb-3">Sieć RX / TX (MB)</div>
+                  <div class="h-40"><canvas id="chart-ts-net"></canvas></div>
+                </div>
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                  <div class="text-sm text-gray-500 mb-3">Dysk odczyt / zapis (MB)</div>
+                  <div class="h-40"><canvas id="chart-ts-blk"></canvas></div>
+                </div>
+              </div>
+
+              <!-- Event charts row -->
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4">
                   <div class="text-sm text-gray-500 mb-3">Restarty / dzień (7 dni)</div>
@@ -639,12 +1492,217 @@
             </div>
           </div>
 
+          <!-- ╔══════════════════════╗ -->
+          <!-- ║   TAB: ALERTY        ║ -->
+          <!-- ╚══════════════════════╝ -->
+          <div x-show="curTab==='alerts'">
+            <div x-show="alertsLoading" class="text-center py-10 text-gray-600">⏳</div>
+            <div x-show="!alertsLoading">
+
+              <!-- Add rule -->
+              <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4 mb-5">
+                <div class="text-sm font-semibold text-gray-400 mb-3">Dodaj regułę alertu</div>
+                <div class="flex flex-wrap gap-3 items-end">
+                  <div>
+                    <div class="text-xs text-gray-500 mb-1">Metryka</div>
+                    <select x-model="alertForm.metric"
+                      class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5
+                             text-sm text-gray-200 focus:outline-none">
+                      <option value="cpu_percent">CPU %</option>
+                      <option value="mem_percent">RAM %</option>
+                      <option value="restart_count">Liczba restartów</option>
+                      <option value="status_stopped">Kontener zatrzymany</option>
+                    </select>
+                  </div>
+                  <template x-if="alertForm.metric !== 'status_stopped'">
+                    <div>
+                      <div class="text-xs text-gray-500 mb-1">Próg</div>
+                      <input type="number" x-model.number="alertForm.threshold"
+                        min="0" max="10000" step="1"
+                        class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5
+                               text-sm text-gray-200 w-24 focus:outline-none">
+                    </div>
+                  </template>
+                  <div>
+                    <div class="text-xs text-gray-500 mb-1">Min. czas trwania (min)</div>
+                    <input type="number" x-model.number="alertForm.min_duration"
+                      min="0" max="60" step="1" placeholder="0 = od razu"
+                      class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5
+                             text-sm text-gray-200 w-28 focus:outline-none">
+                  </div>
+                  <button @click="createAlert()"
+                    class="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-1.5
+                           rounded-lg transition-colors">
+                    + Dodaj
+                  </button>
+                </div>
+              </div>
+
+              <!-- Active events -->
+              <template x-if="alertEvents.filter(e=>e.status==='active').length > 0">
+                <div class="mb-5">
+                  <div class="text-sm font-semibold text-red-400 mb-2">🔴 Aktywne alerty</div>
+                  <div class="space-y-2">
+                    <template x-for="e in alertEvents.filter(e=>e.status==='active')" :key="e.id">
+                      <div class="bg-red-950/40 border border-red-900 rounded-xl px-4 py-3
+                                  flex items-center justify-between gap-3">
+                        <div class="text-sm">
+                          <span class="text-red-300 font-semibold" x-text="e.metric_label"></span>
+                          <span class="text-gray-400"> = </span>
+                          <span class="text-white font-mono" x-text="e.value.toFixed(1)"></span>
+                          <span class="text-gray-500"> (próg: </span>
+                          <span class="text-gray-300 font-mono" x-text="e.threshold"></span>
+                          <span class="text-gray-500">)</span>
+                          <span class="text-gray-600 text-xs ml-2"
+                                x-text="fmtDt(e.triggered_at)"></span>
+                        </div>
+                        <button @click="ackAlert(e.id)"
+                          class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300
+                                 px-2 py-1 rounded-lg transition-colors flex-shrink-0">
+                          ✓ Potwierdź
+                        </button>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Rules list -->
+              <div class="text-sm font-semibold text-gray-400 mb-2">Reguły alertów</div>
+              <template x-if="alertRules.length === 0">
+                <div class="text-gray-700 text-sm py-4">Brak reguł dla tego kontenera.</div>
+              </template>
+              <div class="space-y-2 mb-5">
+                <template x-for="r in alertRules" :key="r.id">
+                  <div class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3
+                              flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-2 text-sm">
+                      <div :class="r.enabled ? 'bg-green-400' : 'bg-gray-600'"
+                           class="w-2 h-2 rounded-full flex-shrink-0"></div>
+                      <span class="text-gray-200" x-text="r.metric_label"></span>
+                      <template x-if="r.metric !== 'status_stopped'">
+                        <span class="text-gray-500">≥ <span class="font-mono text-gray-300"
+                              x-text="r.threshold"></span></span>
+                      </template>
+                    </div>
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                      <button @click="toggleAlert(r.id)"
+                        class="text-xs text-gray-500 hover:text-gray-300 px-2 py-1
+                               bg-gray-800 rounded-lg transition-colors"
+                        x-text="r.enabled ? 'Wyłącz' : 'Włącz'"></button>
+                      <button @click="deleteAlert(r.id)"
+                        class="text-gray-700 hover:text-red-400 text-xs transition-colors">✕</button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Event history -->
+              <div class="text-sm font-semibold text-gray-400 mb-2">Historia alertów</div>
+              <template x-if="alertEvents.filter(e=>e.status!=='active').length === 0">
+                <div class="text-gray-700 text-sm py-4">Brak historii alertów.</div>
+              </template>
+              <div class="space-y-1.5">
+                <template x-for="e in alertEvents.filter(e=>e.status!=='active')" :key="e.id">
+                  <div class="bg-gray-900 border border-gray-800 rounded-xl px-4 py-2.5
+                              flex items-center gap-3 text-sm">
+                    <div :class="e.status==='acknowledged' ? 'bg-yellow-400' : 'bg-gray-500'"
+                         class="w-2 h-2 rounded-full flex-shrink-0"></div>
+                    <span class="text-gray-400" x-text="e.metric_label"></span>
+                    <span class="font-mono text-gray-300 text-xs" x-text="e.value.toFixed(1)"></span>
+                    <span :class="e.status==='acknowledged'
+                            ? 'text-yellow-400' : 'text-gray-500'"
+                          class="text-xs ml-auto" x-text="e.status"></span>
+                    <span class="text-gray-700 text-xs"
+                          x-text="fmtDt(e.triggered_at)"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- ╔══════════════════════╗ -->
+          <!-- ║   TAB: TERMINAL      ║ -->
+          <!-- ╚══════════════════════╝ -->
+          <div x-show="curTab==='terminal'">
+            <div class="flex items-center gap-3 mb-3">
+              <div :class="termReady ? 'bg-green-400' : 'bg-gray-600'"
+                   class="w-2.5 h-2.5 rounded-full flex-shrink-0"></div>
+              <span class="text-sm text-gray-400"
+                    x-text="termReady ? 'Połączony z kontenerem' : 'Łączenie...'"></span>
+              <button @click="closeTerminal(); $nextTick(()=>openTerminal())"
+                class="ml-auto text-xs text-gray-500 hover:text-gray-300 bg-gray-800
+                       px-3 py-1 rounded-lg transition-colors">
+                🔄 Reconnect
+              </button>
+            </div>
+            <div id="terminal-container"
+                 class="rounded-xl overflow-hidden border border-gray-800"
+                 style="height:520px; background:#000;"></div>
+            <div class="text-xs text-gray-700 mt-2">
+              Ctrl+C — przerwij · Ctrl+D — wyloguj/zamknij sesję · Strzałki — historia komend
+            </div>
+          </div>
+
         </div><!-- /container detail -->
       </template>
 
     </main>
   </div><!-- /main panel -->
 </div><!-- /main app -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     EMAIL MODAL
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div x-show="emailModal" x-transition
+     class="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+  <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+    <h3 class="text-white font-semibold text-base mb-4">📧 Wyślij raport na email</h3>
+    <div class="space-y-3">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Adres email odbiorcy</label>
+        <input type="email" x-model="emailTo" @keydown.enter="sendEmail()"
+          placeholder="odbiorca@domena.pl"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5
+                 text-white text-sm placeholder-gray-600
+                 focus:outline-none focus:border-blue-500 transition-colors">
+      </div>
+      <div x-show="emailDone"
+           class="bg-green-950/60 border border-green-800 rounded-lg px-3 py-2
+                  text-green-300 text-sm"
+           x-text="emailDone"></div>
+      <div x-show="emailErr"
+           class="bg-red-950/60 border border-red-800 rounded-lg px-3 py-2
+                  text-red-300 text-sm"
+           x-text="emailErr"></div>
+      <div class="flex gap-2">
+        <button @click="sendEmail()" :disabled="emailSending || !emailTo"
+          class="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40
+                 text-white text-sm font-semibold py-2.5 rounded-lg transition-colors">
+          <span x-show="emailSending" class="animate-spin inline-block mr-1">⟳</span>
+          <span x-text="emailSending ? 'Wysyłanie...' : 'Wyślij'"></span>
+        </button>
+        <button @click="emailModal=false; emailDone=''; emailErr=''"
+          class="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-300
+                 text-sm py-2.5 rounded-lg transition-colors">
+          Zamknij
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     NOTIFICATION TOAST
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div x-show="notif" x-transition.opacity
+     :class="notif?.type === 'error'
+       ? 'bg-red-900 border-red-700 text-red-200'
+       : 'bg-green-900 border-green-700 text-green-200'"
+     class="fixed bottom-5 right-5 border rounded-xl px-4 py-3 text-sm
+            shadow-xl z-50 max-w-sm"
+     x-text="notif?.msg">
+</div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
      APPLICATION LOGIC
@@ -658,6 +1716,7 @@ function app() {
     lf: { u: 'admin', p: '', err: '' },
     token: null,
     me: '',
+    myRole: 'user',
 
     /* ── WebSocket ─────────────────────────────────────────────────────── */
     ws: null,
@@ -672,11 +1731,26 @@ function app() {
     selCt: null,
     curTab: 'logs',
     tabs: [
-      { id: 'logs',     lbl: '📋 Logi' },
-      { id: 'compose',  lbl: '📄 Compose' },
-      { id: 'analysis', lbl: '🔍 Analiza AI' },
-      { id: 'history',  lbl: '📊 Historia' },
+      { id: 'overview',  lbl: '📊 Przegląd' },
+      { id: 'logs',      lbl: '📋 Logi' },
+      { id: 'compose',   lbl: '📄 Compose' },
+      { id: 'analysis',  lbl: '🔍 Analiza AI' },
+      { id: 'history',   lbl: '📈 Historia' },
+      { id: 'alerts',    lbl: '🔔 Alerty' },
+      { id: 'terminal',  lbl: '💻 Terminal' },
     ],
+
+    /* ── Terminal ──────────────────────────────────────────────────────────── */
+    _term: null,       // xterm Terminal instance
+    _termFit: null,    // FitAddon instance
+    _termWs: null,     // WebSocket to /ws/terminal
+    termReady: false,
+
+    /* ── Comparison charts ─────────────────────────────────────────────────── */
+    cmpHours: 3,
+    cmpLoading: false,
+    cmpData: [],
+    _cmpCharts: {},
 
     /* ── Logs ──────────────────────────────────────────────────────────── */
     logs: '',
@@ -689,17 +1763,85 @@ function app() {
     /* ── Compose ───────────────────────────────────────────────────────── */
     compose: '',
     cmpLoading: false,
+    cmpEditing: false,
+    cmpEditContent: '',
+    cmpSaving: false,
 
     /* ── AI analysis ───────────────────────────────────────────────────── */
     aiRunning: false,
     aiContent: '',
     aiRisk: 'NIEZNANY',
+    currentAnalysisId: null,
     savedAnalyses: [],
+
+    /* ── Container actions ─────────────────────────────────────────────── */
+    ctActionLoading: null,
+
+    /* ── Email modal ───────────────────────────────────────────────────── */
+    emailModal: false,
+    emailAnalysisId: null,
+    emailTo: '',
+    emailSending: false,
+    emailDone: '',
+    emailErr: '',
+
+    /* ── Notification toast ────────────────────────────────────────────── */
+    notif: null,
+
+    /* ── Page ──────────────────────────────────────────────────────────── */
+    page: 'dashboard',    // 'dashboard' | 'secrets' | 'allalerts' | 'settings'
+
+    /* ── Server groups ─────────────────────────────────────────────────── */
+    serverGroups: [],
+    expandedGroups: {},   // group_id → bool
+
+    /* ── All-alerts page ───────────────────────────────────────────────── */
+    allAlerts: [],
+    allAlertsLoading: false,
+    allAlertsFilter: '',   // '' | 'active' | 'acknowledged'
+
+    /* ── Settings page ─────────────────────────────────────────────────── */
+    settingsTab: 'password',   // 'password' | 'users' | 'srvgroups' | 'usrgroups'
+    pwForm: { current: '', new1: '', new2: '', err: '', ok: '' },
+    users: [],
+    usersLoading: false,
+    newUserForm: { username: '', password: '', role: 'user', err: '' },
+    userGroups: [],
+    newSrvGroupForm: { name: '', color: '#3b82f6', err: '' },
+    newUsrGroupForm: { name: '', err: '' },
+    editGroupMembers: null,   // { type:'srv'|'usr', group: {...}, draft: [...] }
+
+    /* ── Server alerts ────────────────────────────────────────────── */
+    srvAlerts: [],
+    srvAlertsLoading: false,
+
+    /* ── Alerty ────────────────────────────────────────────────────────── */
+    alertRules: [],
+    alertEvents: [],
+    alertsLoading: false,
+    alertForm: { metric: 'cpu_percent', threshold: 80, min_duration: 0 },
+    alertBadge: 0,
+
+    /* ── Sekrety ───────────────────────────────────────────────────────── */
+    secrets: [],
+    secretsLoading: false,
+    secretForm: { name: '', value: '', description: '' },
+    secretReveal: { id: null, value: '' },
+
+    /* ── Bulk actions ──────────────────────────────────────────────────── */
+    bulkMode: false,
+    bulkSelected: {},     // "agentId/containerName" → true
+    bulkLoading: false,
+
+    /* ── Metric history ────────────────────────────────────────────────── */
+    histMetrics: null,
+    histHours: 24,
 
     /* ── History ───────────────────────────────────────────────────────── */
     histData: null,
     histLoading: false,
     _charts: {},
+    _srvCharts: {},
 
     /* ══════════════════════════════════════════════════════════════════════
        INIT
@@ -709,8 +1851,11 @@ function app() {
       if (t) {
         this.token  = t;
         this.me     = localStorage.getItem('dm_user') || 'admin';
+        this.myRole = localStorage.getItem('dm_role') || 'user';
         this.loggedIn = true;
         this.connectWS();
+        this.loadAlertBadge();
+        this.loadServerGroups();
       }
     },
 
@@ -731,12 +1876,16 @@ function app() {
           return;
         }
         const d = await r.json();
-        this.token = d.access_token;
-        this.me    = d.username;
-        localStorage.setItem('dm_token', this.token);
-        localStorage.setItem('dm_user',  this.me);
+        this.token  = d.access_token;
+        this.me     = d.username;
+        this.myRole = d.role || 'user';
+        localStorage.setItem('dm_token',  this.token);
+        localStorage.setItem('dm_user',   this.me);
+        localStorage.setItem('dm_role',   this.myRole);
         this.loggedIn = true;
         this.connectWS();
+        this.loadAlertBadge();
+        this.loadServerGroups();
       } catch {
         this.lf.err = 'Błąd połączenia z serwerem.';
       }
@@ -745,6 +1894,7 @@ function app() {
     logout() {
       localStorage.removeItem('dm_token');
       localStorage.removeItem('dm_user');
+      localStorage.removeItem('dm_role');
       this.token    = null;
       this.loggedIn = false;
       this.servers  = [];
@@ -808,12 +1958,17 @@ function app() {
           if (fresh) Object.assign(this.selCt, fresh);
         }
         this.lastSync = new Date();
+        // Refresh server charts if this agent is selected and no container is open
+        if (this.selSrvId === data.agent_id && !this.selCt) {
+          this.$nextTick(() => this.renderServerCharts());
+        }
       }
       else if (event === 'analysis_start') {
         if (this._isCur(data)) {
           this.aiRunning = true;
           this.aiContent = '';
           this.aiRisk    = 'NIEZNANY';
+          this.currentAnalysisId = null;
         }
       }
       else if (event === 'analysis_token') {
@@ -829,6 +1984,7 @@ function app() {
       else if (event === 'analysis_done') {
         if (this._isCur(data)) {
           this.aiRunning = false;
+          this.currentAnalysisId = data.analysis_id || null;
           this.loadAnalyses();
         }
       }
@@ -836,6 +1992,17 @@ function app() {
         if (this._isCur(data)) {
           this.aiRunning = false;
           this.aiContent += `\n\n❌ Błąd analizy: ${data.error}`;
+        }
+      }
+      else if (event === 'alert_triggered') {
+        this.alertBadge++;
+        if (this.selSrvId === data.agent_id && !this.selCt) this.loadServerAlerts();
+        this._notify(
+          `⚠ Alert: ${data.container_name} — ${data.metric} = ${data.value.toFixed(1)} (próg: ${data.threshold})`,
+          'error'
+        );
+        if (this.selCt?.name === data.container_name && this.selSrvId === data.agent_id) {
+          this.loadAlerts();
         }
       }
     },
@@ -893,36 +2060,56 @@ function app() {
        NAVIGATION
        ══════════════════════════════════════════════════════════════════════ */
     selectSrv(id) {
-      this.selSrvId = id;
-      this.selCt    = null;
+      this.selSrvId  = id;
+      this.selCt     = null;
+      this.srvAlerts = [];
       this.dCharts();
+      this.$nextTick(() => this.renderServerCharts());
+      this.loadServerAlerts();
     },
 
-    openCt(ct, tab = 'logs') {
+    backToServer() {
+      this.closeTerminal();
+      this.selCt = null;
+      this.dCharts();
+      this.$nextTick(() => this.renderServerCharts());
+    },
+
+    openCt(ct, tab = 'overview') {
       this.selCt      = { ...ct };
       this.curTab     = tab;
       this.logs       = '';
       this.compose    = '';
+      this.cmpEditing = false;
+      this.cmpEditContent = '';
       this.aiContent  = '';
       this.aiRisk     = 'NIEZNANY';
       this.aiRunning  = false;
+      this.currentAnalysisId = null;
       this.savedAnalyses = [];
       this.histData   = null;
       this.dCharts();
+      this.dSrvCharts();
 
-      if (tab === 'logs')     this.loadLogs();
-      if (tab === 'compose')  this.loadCompose();
-      if (tab === 'analysis') this.loadAnalyses();
-      if (tab === 'history')  this.loadHistory();
+      if (tab === 'overview')  this.loadCompose();
+      if (tab === 'logs')      this.loadLogs();
+      if (tab === 'compose')   this.loadCompose();
+      if (tab === 'analysis')  this.loadAnalyses();
+      if (tab === 'history')   this.loadHistory();
+      if (tab === 'alerts')    this.loadAlerts();
     },
 
     switchTab(tab) {
+      if (this.curTab === 'terminal' && tab !== 'terminal') this.closeTerminal();
       this.curTab = tab;
       this.dCharts();
-      if (tab === 'logs'     && !this.logs)             this.loadLogs();
-      if (tab === 'compose'  && !this.compose)          this.loadCompose();
+      if (tab === 'overview'  && !this.compose)         this.loadCompose();
+      if (tab === 'logs'      && !this.logs)            this.loadLogs();
+      if (tab === 'compose'   && !this.compose)         this.loadCompose();
       if (tab === 'analysis')                           this.loadAnalyses();
       if (tab === 'history')                            this.loadHistory();
+      if (tab === 'alerts')                             this.loadAlerts();
+      if (tab === 'terminal')                           this.$nextTick(() => this.openTerminal());
     },
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -949,6 +2136,17 @@ function app() {
     async _del(url) {
       const r = await fetch(url, { method: 'DELETE', headers: { Authorization: `Bearer ${this.token}` } });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+
+    async _put(url, body) {
+      const r = await fetch(url, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (r.status === 401) { this.logout(); return null; }
+      if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.detail || `HTTP ${r.status}`); }
       return r.json();
     },
 
@@ -1044,13 +2242,17 @@ function app() {
       if (!this.selCt) return;
       this.histLoading = true;
       try {
-        const d = await this._get(
-          `/api/servers/${this.selSrvId}/containers/${encodeURIComponent(this.selCt.name)}/history?days=7`
-        );
-        if (d) {
-          this.histData = d;
-          this.$nextTick(() => this.renderCharts());
-        }
+        const [evtData, tsData] = await Promise.all([
+          this._get(
+            `/api/servers/${this.selSrvId}/containers/${encodeURIComponent(this.selCt.name)}/history?days=7`
+          ).catch(() => null),
+          this._get(
+            `/api/metrics/${encodeURIComponent(this.selSrvId)}/${encodeURIComponent(this.selCt.name)}?hours=${this.histHours}`
+          ).catch(() => null),
+        ]);
+        if (evtData) this.histData = evtData;
+        if (tsData)  this.histMetrics = tsData;
+        this.$nextTick(() => this.renderCharts());
       } catch {}
       finally { this.histLoading = false; }
     },
@@ -1060,17 +2262,68 @@ function app() {
        ══════════════════════════════════════════════════════════════════════ */
     renderCharts() {
       this.dCharts();
-      const evts = this.histData?.events || [];
-      if (!evts.length) return;
 
-      const baseOpts = {
+      const baseOpts = (yLabel = '') => ({
         responsive: true, maintainAspectRatio: false, animation: false,
         plugins: { legend: { labels: { color: '#6b7280', boxWidth: 10, font: { size: 11 } } } },
         scales: {
           x: { ticks: { color: '#4b5563', maxTicksLimit: 6, maxRotation: 0 }, grid: { color: '#111827' } },
-          y: { ticks: { color: '#4b5563' }, grid: { color: '#111827' }, beginAtZero: true },
+          y: { ticks: { color: '#4b5563' }, grid: { color: '#111827' }, beginAtZero: true, title: yLabel ? { display: true, text: yLabel, color: '#4b5563', font: { size: 10 } } : {} },
         },
-      };
+      });
+
+      // ── Time-series charts (from /api/metrics) ────────────────────────
+      const pts = this.histMetrics?.points || [];
+      if (pts.length) {
+        const tsLbls = pts.map(p => p.t.substring(0,16).replace('T',' '));
+
+        const tsCpu = document.getElementById('chart-ts-cpu');
+        if (tsCpu) this._charts.tsCpu = new Chart(tsCpu, {
+          type: 'line',
+          data: { labels: tsLbls, datasets: [{
+            label: 'CPU %', data: pts.map(p => p.cpu),
+            borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.08)',
+            fill: true, tension: 0.3, pointRadius: 0,
+          }]},
+          options: baseOpts('%'),
+        });
+
+        const tsRam = document.getElementById('chart-ts-ram');
+        if (tsRam) this._charts.tsRam = new Chart(tsRam, {
+          type: 'line',
+          data: { labels: tsLbls, datasets: [{
+            label: 'RAM %', data: pts.map(p => p.mem),
+            borderColor: '#8b5cf6', backgroundColor: 'rgba(139,92,246,.08)',
+            fill: true, tension: 0.3, pointRadius: 0,
+          }]},
+          options: baseOpts('%'),
+        });
+
+        const toMB = v => v ? +(v / 1048576).toFixed(3) : 0;
+        const tsNet = document.getElementById('chart-ts-net');
+        if (tsNet) this._charts.tsNet = new Chart(tsNet, {
+          type: 'line',
+          data: { labels: tsLbls, datasets: [
+            { label: 'RX MB', data: pts.map(p => toMB(p.rx)), borderColor: '#06b6d4', backgroundColor: 'transparent', tension: 0.3, pointRadius: 0 },
+            { label: 'TX MB', data: pts.map(p => toMB(p.tx)), borderColor: '#10b981', backgroundColor: 'transparent', tension: 0.3, pointRadius: 0 },
+          ]},
+          options: baseOpts('MB'),
+        });
+
+        const tsBlk = document.getElementById('chart-ts-blk');
+        if (tsBlk) this._charts.tsBlk = new Chart(tsBlk, {
+          type: 'line',
+          data: { labels: tsLbls, datasets: [
+            { label: 'Odczyt MB', data: pts.map(p => toMB(p.blk_r)), borderColor: '#f59e0b', backgroundColor: 'transparent', tension: 0.3, pointRadius: 0 },
+            { label: 'Zapis MB',  data: pts.map(p => toMB(p.blk_w)), borderColor: '#ef4444', backgroundColor: 'transparent', tension: 0.3, pointRadius: 0 },
+          ]},
+          options: baseOpts('MB'),
+        });
+      }
+
+      // ── Event-based charts (from /api/history) ────────────────────────
+      const evts = this.histData?.events || [];
+      if (!evts.length) return;
 
       // Restarts per day
       const byDay = {};
@@ -1086,7 +2339,7 @@ function app() {
           data: Object.values(byDay),
           backgroundColor: '#ef4444', borderRadius: 4,
         }]},
-        options: { ...baseOpts },
+        options: baseOpts(),
       });
 
       const xLbls = evts.map(e => e.occurred_at.substring(0,16).replace('T',' '));
@@ -1099,7 +2352,7 @@ function app() {
           borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.1)',
           fill: true, tension: 0.4, pointRadius: 2,
         }]},
-        options: { ...baseOpts },
+        options: baseOpts('%'),
       });
 
       const rmc = document.getElementById('chart-ram');
@@ -1110,13 +2363,69 @@ function app() {
           borderColor: '#8b5cf6', backgroundColor: 'rgba(139,92,246,.1)',
           fill: true, tension: 0.4, pointRadius: 2,
         }]},
-        options: { ...baseOpts },
+        options: baseOpts('%'),
       });
     },
 
     dCharts() {
       for (const c of Object.values(this._charts)) c.destroy();
       this._charts = {};
+    },
+
+    dSrvCharts() {
+      for (const c of Object.values(this._srvCharts)) c.destroy();
+      this._srvCharts = {};
+    },
+
+    renderServerCharts() {
+      this.dSrvCharts();
+      const all = this.selSrv?.containers || [];
+      const running = all.filter(c => c.status === 'running');
+      if (!running.length) return;
+
+      const labels = running.map(c => c.name);
+
+      const baseOpts = (unit = '%') => ({
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { display: false },
+                   tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x.toFixed(1)} ${unit}` } } },
+        scales: {
+          x: { beginAtZero: true,
+               ticks: { color: '#4b5563', callback: v => `${v}${unit}` },
+               grid: { color: '#111827' } },
+          y: { ticks: { color: '#9ca3af', font: { size: 11 } }, grid: { color: '#111827' } },
+        },
+      });
+
+      const mkChart = (id, data, colors, unit = '%') => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        this._srvCharts[id] = new Chart(el, {
+          type: 'bar',
+          data: { labels, datasets: [{ data, backgroundColor: colors, borderRadius: 3 }] },
+          options: baseOpts(unit),
+        });
+      };
+
+      mkChart('chart-srv-cpu',
+        running.map(c => c.cpu_percent || 0),
+        running.map(c => (c.cpu_percent||0) > 80 ? '#ef4444' : (c.cpu_percent||0) > 50 ? '#f59e0b' : '#3b82f6'));
+
+      mkChart('chart-srv-ram',
+        running.map(c => c.memory?.percent || 0),
+        running.map(c => (c.memory?.percent||0) > 85 ? '#ef4444' : (c.memory?.percent||0) > 65 ? '#f59e0b' : '#8b5cf6'));
+
+      const toMB = v => v ? +(v / 1048576).toFixed(2) : 0;
+      mkChart('chart-srv-rx',
+        running.map(c => toMB(c.network?.rx_bytes)),
+        running.map(() => '#06b6d4'), 'MB');
+
+      mkChart('chart-srv-tx',
+        running.map(c => toMB(c.network?.tx_bytes)),
+        running.map(() => '#10b981'), 'MB');
     },
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -1270,6 +2579,699 @@ function app() {
 
     clip(txt) {
       navigator.clipboard.writeText(txt).catch(() => {});
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       CONTAINER ACTIONS
+       ══════════════════════════════════════════════════════════════════════ */
+    async doAction(containerName, action) {
+      const labels = { start: 'uruchomiony', stop: 'zatrzymany', restart: 'zrestartowany' };
+      if (!confirm(`Kontener "${containerName}" zostanie ${labels[action] || action}. Kontynuować?`)) return;
+      this.ctActionLoading = `${containerName}-${action}`;
+      try {
+        await this._post(
+          `/api/servers/${this.selSrvId}/containers/${encodeURIComponent(containerName)}/action`,
+          { action }
+        );
+        this._notify(`Kontener "${containerName}" — ${action} wykonano pomyślnie.`, 'success');
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      } finally {
+        this.ctActionLoading = null;
+      }
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       COMPOSE EDIT
+       ══════════════════════════════════════════════════════════════════════ */
+    startEditCompose() {
+      this.cmpEditContent = this.compose;
+      this.cmpEditing = true;
+    },
+
+    cancelEditCompose() {
+      this.cmpEditing = false;
+      this.cmpEditContent = '';
+    },
+
+    async saveCompose() {
+      if (!confirm('Zapisać plik docker-compose.yml na hoście? Zmiana jest natychmiastowa.')) return;
+      this.cmpSaving = true;
+      try {
+        await this._put(
+          `/api/servers/${this.selSrvId}/containers/${encodeURIComponent(this.selCt.name)}/compose`,
+          { content: this.cmpEditContent }
+        );
+        this.compose = this.cmpEditContent;
+        this.cmpEditing = false;
+        this._notify('Plik docker-compose.yml zapisany pomyślnie.', 'success');
+      } catch(e) {
+        this._notify(`Błąd zapisu: ${e.message}`, 'error');
+      } finally {
+        this.cmpSaving = false;
+      }
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       PDF DOWNLOAD
+       ══════════════════════════════════════════════════════════════════════ */
+    async dlPdf(analysisId) {
+      try {
+        const r = await fetch(`/api/analyses/${analysisId}/pdf`, {
+          headers: { Authorization: `Bearer ${this.token}` },
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const blob = await r.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `dockermind-analiza-${analysisId}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch(e) {
+        this._notify(`Błąd pobierania PDF: ${e.message}`, 'error');
+      }
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       EMAIL MODAL
+       ══════════════════════════════════════════════════════════════════════ */
+    openEmailModal(id) {
+      this.emailAnalysisId = id;
+      this.emailTo   = '';
+      this.emailDone = '';
+      this.emailErr  = '';
+      this.emailModal = true;
+    },
+
+    async sendEmail() {
+      if (!this.emailTo || !this.emailAnalysisId) return;
+      this.emailSending = true;
+      this.emailDone = '';
+      this.emailErr  = '';
+      try {
+        await this._post(`/api/analyses/${this.emailAnalysisId}/email`, { to: this.emailTo });
+        this.emailDone = `Email wysłany do: ${this.emailTo}`;
+      } catch(e) {
+        this.emailErr = `Błąd: ${e.message}`;
+      } finally {
+        this.emailSending = false;
+      }
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       NOTIFICATION
+       ══════════════════════════════════════════════════════════════════════ */
+    _notify(msg, type = 'info') {
+      this.notif = { msg, type };
+      setTimeout(() => { this.notif = null; }, 4500);
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       ALERTS
+       ══════════════════════════════════════════════════════════════════════ */
+    async loadServerAlerts() {
+      if (!this.selSrvId) return;
+      this.srvAlertsLoading = true;
+      try {
+        const d = await this._get(`/api/alert-events?agent_id=${encodeURIComponent(this.selSrvId)}&status=active&limit=100`);
+        if (d) this.srvAlerts = d;
+      } catch {}
+      finally { this.srvAlertsLoading = false; }
+    },
+
+    async loadAlerts() {
+      if (!this.selCt) return;
+      this.alertsLoading = true;
+      try {
+        const [rules, events] = await Promise.all([
+          this._get(`/api/alerts?agent_id=${encodeURIComponent(this.selSrvId)}&container_name=${encodeURIComponent(this.selCt.name)}`),
+          this._get(`/api/alert-events?agent_id=${encodeURIComponent(this.selSrvId)}&container_name=${encodeURIComponent(this.selCt.name)}&limit=50`),
+        ]);
+        if (rules)  this.alertRules  = rules;
+        if (events) this.alertEvents = events;
+      } catch(e) {
+        this._notify(`Błąd ładowania alertów: ${e.message}`, 'error');
+      } finally {
+        this.alertsLoading = false;
+      }
+    },
+
+    async loadAlertBadge() {
+      try {
+        const evts = await this._get('/api/alert-events?status=active&limit=200');
+        if (evts) this.alertBadge = evts.length;
+      } catch {}
+    },
+
+    async createAlert() {
+      if (!this.selCt) return;
+      try {
+        const rule = await this._post('/api/alerts', {
+          agent_id:       this.selSrvId,
+          container_name: this.selCt.name,
+          metric:         this.alertForm.metric,
+          threshold:      parseFloat(this.alertForm.threshold) || 80,
+          min_duration:   parseInt(this.alertForm.min_duration) || 0,
+        });
+        if (rule) {
+          this.alertRules.push(rule);
+          this._notify('Reguła alertu utworzona.', 'success');
+        }
+      } catch(e) {
+        this._notify(`Błąd tworzenia reguły: ${e.message}`, 'error');
+      }
+    },
+
+    async deleteAlert(id) {
+      if (!confirm('Usunąć regułę alertu?')) return;
+      try {
+        await this._del(`/api/alerts/${id}`);
+        this.alertRules = this.alertRules.filter(r => r.id !== id);
+        this._notify('Reguła usunięta.', 'success');
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    async toggleAlert(id) {
+      try {
+        const updated = await this._put(`/api/alerts/${id}/toggle`, {});
+        if (updated) {
+          const i = this.alertRules.findIndex(r => r.id === id);
+          if (i >= 0) this.alertRules[i] = updated;
+        }
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    async ackAlert(id) {
+      try {
+        const updated = await this._post(`/api/alert-events/${id}/ack`, {});
+        if (updated) {
+          const i = this.alertEvents.findIndex(e => e.id === id);
+          if (i >= 0) this.alertEvents[i] = updated;
+          this.alertBadge = Math.max(0, this.alertBadge - 1);
+        }
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       SECRETS
+       ══════════════════════════════════════════════════════════════════════ */
+    async loadSecrets() {
+      this.secretsLoading = true;
+      try {
+        const d = await this._get('/api/secrets');
+        if (d) this.secrets = d;
+      } catch(e) {
+        this._notify(`Błąd ładowania sekretów: ${e.message}`, 'error');
+      } finally {
+        this.secretsLoading = false;
+      }
+    },
+
+    async createSecret() {
+      if (!this.secretForm.name.trim()) {
+        this._notify('Nazwa sekretu jest wymagana.', 'error');
+        return;
+      }
+      try {
+        const s = await this._post('/api/secrets', { ...this.secretForm });
+        if (s) {
+          this.secrets.push(s);
+          this.secretForm = { name: '', value: '', description: '' };
+          this._notify(`Sekret "${s.name}" zapisany.`, 'success');
+        }
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    async deleteSecret(id) {
+      if (!confirm('Usunąć sekret?')) return;
+      try {
+        await this._del(`/api/secrets/${id}`);
+        this.secrets = this.secrets.filter(s => s.id !== id);
+        if (this.secretReveal.id === id) this.secretReveal = { id: null, value: '' };
+        this._notify('Sekret usunięty.', 'success');
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    async revealSecret(id) {
+      try {
+        const d = await this._get(`/api/secrets/${id}/reveal`);
+        if (d) this.secretReveal = { id, value: d.value };
+      } catch(e) {
+        this._notify(`Błąd odszyfrowania: ${e.message}`, 'error');
+      }
+    },
+
+    async clipSecret(id) {
+      try {
+        const d = await this._get(`/api/secrets/${id}/reveal`);
+        if (d) {
+          await navigator.clipboard.writeText(d.value);
+          this._notify('Skopiowano do schowka.', 'success');
+        }
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       TERMINAL
+       ══════════════════════════════════════════════════════════════════════ */
+    openTerminal() {
+      if (!this.selCt || !this.selSrvId) return;
+      this.closeTerminal();
+
+      const el = document.getElementById('terminal-container');
+      if (!el) return;
+
+      const term = new Terminal({
+        theme: { background: '#000000', foreground: '#e5e7eb', cursor: '#60a5fa' },
+        fontSize: 13,
+        fontFamily: "'Courier New', Courier, monospace",
+        cursorBlink: true,
+        scrollback: 5000,
+      });
+      const fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(el);
+      fitAddon.fit();
+
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const { cols, rows } = term;
+      const url = `${proto}//${location.host}/ws/terminal?token=${this.token}`
+        + `&agent_id=${encodeURIComponent(this.selSrvId)}`
+        + `&container=${encodeURIComponent(this.selCt.name)}`
+        + `&cols=${cols}&rows=${rows}`;
+
+      const ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        this.termReady = true;
+        term.write('\x1b[32mPołączono.\x1b[0m\r\n');
+      };
+      ws.onclose = () => {
+        if (this._termWs === ws) this.termReady = false;
+        try { term.write('\r\n\x1b[31m[Sesja zakończona]\x1b[0m\r\n'); } catch {}
+      };
+      ws.onerror = () => {
+        try { term.write('\r\n\x1b[31m[Błąd WebSocket]\x1b[0m\r\n'); } catch {}
+      };
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'output') {
+            const bytes = Uint8Array.from(atob(msg.data), c => c.charCodeAt(0));
+            term.write(bytes);
+          } else if (msg.type === 'ended') {
+            this.termReady = false;
+            term.write('\r\n\x1b[33m[Proces zakończony]\x1b[0m\r\n');
+          }
+        } catch {}
+      };
+
+      term.onData(data => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'input', data: btoa(data) }));
+        }
+      });
+
+      term.onResize(({ cols, rows }) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+        }
+      });
+
+      const onResize = () => fitAddon.fit();
+      window.addEventListener('resize', onResize);
+      term._dmResizeHandler = onResize;
+
+      this._term   = term;
+      this._termFit = fitAddon;
+      this._termWs  = ws;
+    },
+
+    closeTerminal() {
+      if (this._termWs) { try { this._termWs.close(); } catch {} }
+      if (this._term)   {
+        if (this._term._dmResizeHandler) window.removeEventListener('resize', this._term._dmResizeHandler);
+        try { this._term.dispose(); } catch {}
+      }
+      this._term    = null;
+      this._termFit = null;
+      this._termWs  = null;
+      this.termReady = false;
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       COMPARISON CHARTS
+       ══════════════════════════════════════════════════════════════════════ */
+    async loadComparison() {
+      const containers = (this.selSrv?.containers || []).filter(c => c.status === 'running');
+      if (!containers.length) return;
+      this.cmpLoading = true;
+      try {
+        const results = await Promise.all(
+          containers.map(c =>
+            this._get(`/api/metrics/${encodeURIComponent(this.selSrvId)}/${encodeURIComponent(c.name)}?hours=${this.cmpHours}`)
+              .catch(() => null)
+          )
+        );
+        this.cmpData = containers
+          .map((c, i) => ({ name: c.name, pts: results[i]?.points || [] }))
+          .filter(d => d.pts.length > 0);
+        this.$nextTick(() => this.renderComparisonCharts());
+      } catch(e) {
+        this._notify(`Błąd porównania: ${e.message}`, 'error');
+      } finally {
+        this.cmpLoading = false;
+      }
+    },
+
+    renderComparisonCharts() {
+      for (const c of Object.values(this._cmpCharts)) c.destroy();
+      this._cmpCharts = {};
+      if (!this.cmpData.length) return;
+
+      const COLORS = [
+        '#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6',
+        '#06b6d4','#ec4899','#84cc16','#f97316','#a78bfa',
+      ];
+
+      const baseOpts = {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: { legend: { labels: { color: '#6b7280', boxWidth: 10, font: { size: 10 } } } },
+        scales: {
+          x: { ticks: { color: '#374151', maxTicksLimit: 5, maxRotation: 0 }, grid: { color: '#111827' } },
+          y: { ticks: { color: '#4b5563' }, grid: { color: '#111827' }, beginAtZero: true },
+        },
+      };
+
+      const mkChart = (id, datasets) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        // Use timestamps from first dataset as labels
+        const labels = (this.cmpData[0]?.pts || []).map(p => p.t.substring(11, 16));
+        this._cmpCharts[id] = new Chart(el, {
+          type: 'line',
+          data: { labels, datasets },
+          options: baseOpts,
+        });
+      };
+
+      mkChart('chart-cmp-cpu', this.cmpData.map((d, i) => ({
+        label: d.name,
+        data: d.pts.map(p => p.cpu),
+        borderColor: COLORS[i % COLORS.length],
+        backgroundColor: 'transparent',
+        tension: 0.3, pointRadius: 0, borderWidth: 1.5,
+      })));
+
+      mkChart('chart-cmp-ram', this.cmpData.map((d, i) => ({
+        label: d.name,
+        data: d.pts.map(p => p.mem),
+        borderColor: COLORS[i % COLORS.length],
+        backgroundColor: 'transparent',
+        tension: 0.3, pointRadius: 0, borderWidth: 1.5,
+      })));
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       SERVER GROUPS + COMPUTED
+       ══════════════════════════════════════════════════════════════════════ */
+    get groupedServers() {
+      const assigned = new Set(this.serverGroups.flatMap(g => g.members || []));
+      const groups = this.serverGroups.map(g => ({
+        ...g,
+        members: this.sortedServers.filter(s => (g.members || []).includes(s.agent_id)),
+      }));
+      const ungrouped = this.sortedServers.filter(s => !assigned.has(s.agent_id));
+      return { groups, ungrouped };
+    },
+
+    async loadServerGroups() {
+      try {
+        const d = await this._get('/api/server-groups');
+        if (d) {
+          this.serverGroups = d;
+          // Auto-expand all groups on first load
+          if (Object.keys(this.expandedGroups).length === 0) {
+            for (const g of d) this.expandedGroups[g.id] = true;
+          }
+        }
+      } catch {}
+    },
+
+    async createSrvGroup() {
+      this.newSrvGroupForm.err = '';
+      try {
+        const g = await this._post('/api/server-groups', {
+          name: this.newSrvGroupForm.name.trim(),
+          color: this.newSrvGroupForm.color,
+        });
+        if (g) {
+          this.serverGroups.push(g);
+          this.expandedGroups[g.id] = true;
+          this.newSrvGroupForm.name = '';
+          this._notify(`Grupa "${g.name}" utworzona.`, 'success');
+        }
+      } catch(e) {
+        this.newSrvGroupForm.err = e.message;
+      }
+    },
+
+    async deleteSrvGroup(id) {
+      if (!confirm('Usunąć grupę serwerów?')) return;
+      try {
+        await this._del(`/api/server-groups/${id}`);
+        this.serverGroups = this.serverGroups.filter(g => g.id !== id);
+        this._notify('Grupa usunięta.', 'success');
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    async toggleSrvGroupMember(grp, agentId) {
+      const current = grp.members || [];
+      const newMembers = current.includes(agentId)
+        ? current.filter(id => id !== agentId)
+        : [...current, agentId];
+      try {
+        const updated = await this._put(`/api/server-groups/${grp.id}/members`, { members: newMembers });
+        if (updated) {
+          const i = this.serverGroups.findIndex(g => g.id === grp.id);
+          if (i >= 0) this.serverGroups[i] = updated;
+        }
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       ALL ALERTS PAGE
+       ══════════════════════════════════════════════════════════════════════ */
+    async loadAllAlerts() {
+      this.allAlertsLoading = true;
+      try {
+        const url = this.allAlertsFilter
+          ? `/api/alert-events?status=${this.allAlertsFilter}&limit=200`
+          : '/api/alert-events?limit=200';
+        const d = await this._get(url);
+        if (d) {
+          this.allAlerts = d;
+          this.alertBadge = d.filter(e => e.status === 'active').length;
+        }
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      } finally {
+        this.allAlertsLoading = false;
+      }
+    },
+
+    async ackAlertGlobal(ev) {
+      try {
+        const updated = await this._post(`/api/alert-events/${ev.id}/ack`, {});
+        if (updated) {
+          const i = this.allAlerts.findIndex(e => e.id === ev.id);
+          if (i >= 0) this.allAlerts[i] = updated;
+          this.alertBadge = Math.max(0, this.alertBadge - 1);
+        }
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       SETTINGS PAGE
+       ══════════════════════════════════════════════════════════════════════ */
+    async loadSettings() {
+      await Promise.all([
+        this.loadServerGroups(),
+        this.loadUserGroups(),
+      ]);
+    },
+
+    async loadUsers() {
+      this.usersLoading = true;
+      try {
+        const d = await this._get('/api/users');
+        if (d) this.users = d;
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      } finally {
+        this.usersLoading = false;
+      }
+    },
+
+    async createUser() {
+      this.newUserForm.err = '';
+      try {
+        const u = await this._post('/api/users', {
+          username: this.newUserForm.username.trim(),
+          password: this.newUserForm.password,
+          role: this.newUserForm.role,
+        });
+        if (u) {
+          this.users.push(u);
+          this.newUserForm.username = '';
+          this.newUserForm.password = '';
+          this._notify(`Użytkownik "${u.username}" utworzony.`, 'success');
+        }
+      } catch(e) {
+        this.newUserForm.err = e.message;
+      }
+    },
+
+    async deleteUser(username) {
+      if (!confirm(`Usunąć użytkownika "${username}"?`)) return;
+      try {
+        await this._del(`/api/users/${username}`);
+        this.users = this.users.filter(u => u.username !== username);
+        this._notify('Użytkownik usunięty.', 'success');
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    async changePassword() {
+      this.pwForm.err = '';
+      this.pwForm.ok = '';
+      if (this.pwForm.new1 !== this.pwForm.new2) {
+        this.pwForm.err = 'Nowe hasła nie są zgodne.';
+        return;
+      }
+      if (this.pwForm.new1.length < 6) {
+        this.pwForm.err = 'Hasło musi mieć co najmniej 6 znaków.';
+        return;
+      }
+      try {
+        await this._put('/api/settings/password', {
+          current_password: this.pwForm.current,
+          new_password: this.pwForm.new1,
+        });
+        this.pwForm.ok = 'Hasło zmienione pomyślnie.';
+        this.pwForm.current = '';
+        this.pwForm.new1 = '';
+        this.pwForm.new2 = '';
+      } catch(e) {
+        this.pwForm.err = e.message;
+      }
+    },
+
+    async loadUserGroups() {
+      try {
+        const d = await this._get('/api/user-groups');
+        if (d) this.userGroups = d;
+      } catch {}
+    },
+
+    async createUsrGroup() {
+      this.newUsrGroupForm.err = '';
+      try {
+        const g = await this._post('/api/user-groups', {
+          name: this.newUsrGroupForm.name.trim(),
+        });
+        if (g) {
+          this.userGroups.push(g);
+          this.newUsrGroupForm.name = '';
+          this._notify(`Grupa "${g.name}" utworzona.`, 'success');
+        }
+      } catch(e) {
+        this.newUsrGroupForm.err = e.message;
+      }
+    },
+
+    async deleteUsrGroup(id) {
+      if (!confirm('Usunąć grupę?')) return;
+      try {
+        await this._del(`/api/user-groups/${id}`);
+        this.userGroups = this.userGroups.filter(g => g.id !== id);
+        this._notify('Grupa usunięta.', 'success');
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    async toggleUsrGroupMember(grp, username) {
+      const current = grp.members || [];
+      const newMembers = current.includes(username)
+        ? current.filter(u => u !== username)
+        : [...current, username];
+      try {
+        const updated = await this._put(`/api/user-groups/${grp.id}/members`, { members: newMembers });
+        if (updated) {
+          const i = this.userGroups.findIndex(g => g.id === grp.id);
+          if (i >= 0) this.userGroups[i] = updated;
+        }
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       BULK ACTIONS
+       ══════════════════════════════════════════════════════════════════════ */
+    toggleBulk(agentId, containerName) {
+      const key = `${agentId}/${containerName}`;
+      if (this.bulkSelected[key]) {
+        delete this.bulkSelected[key];
+      } else {
+        this.bulkSelected[key] = { agentId, containerName };
+      }
+      this.bulkSelected = { ...this.bulkSelected }; // trigger reactivity
+    },
+
+    async bulkAction(action) {
+      const entries = Object.values(this.bulkSelected);
+      if (!entries.length) return;
+      const labels = { start: 'uruchomione', stop: 'zatrzymane', restart: 'zrestartowane' };
+      if (!confirm(`${entries.length} kontener(ów) zostanie ${labels[action] || action}. Kontynuować?`)) return;
+      this.bulkLoading = true;
+      let ok = 0, fail = 0;
+      await Promise.all(entries.map(async ({ agentId, containerName }) => {
+        try {
+          await this._post(
+            `/api/servers/${agentId}/containers/${encodeURIComponent(containerName)}/action`,
+            { action }
+          );
+          ok++;
+        } catch { fail++; }
+      }));
+      this.bulkLoading = false;
+      this.bulkSelected = {};
+      this._notify(
+        `Bulk ${action}: ${ok} sukces, ${fail} błędów.`,
+        fail ? 'error' : 'success'
+      );
     },
 
   }; // end return
