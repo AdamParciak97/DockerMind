@@ -10,7 +10,8 @@
 
 **AI-powered Docker monitoring platform — fully offline, multi-server architecture.**
 
-<img width="1912" height="548" alt="image" src="https://github.com/user-attachments/assets/7b8b21ed-e0d9-4db7-aa2b-27306c9a779d" />
+<img width="1919" height="1038" alt="image" src="https://github.com/user-attachments/assets/3d39f2ef-e94b-4e9d-b6ea-402bc7ba957d" />
+
 
 Monitors all Docker containers across your infrastructure. One click triggers a streaming AI analysis (llama3) that diagnoses problems, assesses risk, and provides copy-paste fix commands — entirely within your local network, no internet required.
 
