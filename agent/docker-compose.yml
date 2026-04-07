@@ -8,6 +8,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/dockermind:/etc/dockermind
       - /:/host
+      - /proc/1/net:/host-proc-net:ro
     environment:
       - CENTRAL_URL=ws://${CENTRAL_HOST}/ws/agent
       - AGENT_TOKEN=${AGENT_TOKEN}

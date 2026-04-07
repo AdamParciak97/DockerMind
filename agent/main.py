@@ -74,13 +74,57 @@ def get_host_hostname() -> str:
     return socket.gethostname()
 
 
+def get_host_ip() -> str:
+    """
+    Detect host's primary IP via /proc/1/net (host network namespace).
+    Mounted as /host-proc-net in docker-compose. Falls back to container IP.
+    """
+    import re
+    try:
+        # Step 1: find default-route interface from routing table
+        default_iface = None
+        with open("/host-proc-net/route") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2 and parts[1] == "00000000":
+                    default_iface = parts[0]
+                    break
+
+        # Step 2: parse fib_trie to collect all LOCAL IPs
+        with open("/host-proc-net/fib_trie") as f:
+            content = f.read()
+
+        # Each LOCAL IP appears as:   |-- A.B.C.D\n        /32 host LOCAL
+        local_ips = re.findall(
+            r'\|--\s+([\d.]+)\n\s+/32 host LOCAL', content
+        )
+
+        # Step 3: score candidates — prefer IPs on the default interface subnet
+        # Exclude loopback and all-zeros
+        candidates = [
+            ip for ip in local_ips
+            if not ip.startswith("127.") and ip != "0.0.0.0"
+        ]
+
+        if candidates:
+            # Prefer non-Docker-bridge IPs (172.17/18/19/20)
+            non_docker = [
+                ip for ip in candidates
+                if not re.match(r'^172\.(1[7-9]|2[0-9]|3[01])\\.', ip)
+            ]
+            return (non_docker or candidates)[0]
+    except Exception:
+        pass
+    return get_local_ip()
+
+
 def build_registration() -> dict:
     docker_info = collector.get_docker_info()
     return {
         "type": "register",
         "agent_name": AGENT_NAME,
         "hostname": get_host_hostname(),
-        "ip": AGENT_IP or get_local_ip(),
+        "ip": AGENT_IP or get_host_ip(),
         "docker_version": docker_info.get("docker_version", "unknown"),
         "os": docker_info.get("os", "unknown"),
         "kernel": docker_info.get("kernel", "unknown"),
