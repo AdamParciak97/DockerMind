@@ -6,15 +6,33 @@
 ![WebSocket](https://img.shields.io/badge/WebSocket-real--time-FF6B35)
 ![Offline AI](https://img.shields.io/badge/AI-Offline%20%7C%20llama3-8B4FFF)
 ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
 
-**AI-powered Docker monitoring platform — fully offline, 3-server architecture.**
+**AI-powered Docker monitoring platform — fully offline, multi-server architecture.**
 
 <img width="1912" height="548" alt="image" src="https://github.com/user-attachments/assets/7b8b21ed-e0d9-4db7-aa2b-27306c9a779d" />
 
+Monitors all Docker containers across your infrastructure. One click triggers a streaming AI analysis (llama3) that diagnoses problems, assesses risk, and provides copy-paste fix commands — entirely within your local network, no internet required.
 
-Monitors all Docker containers across your infrastructure. One click triggers a
-streaming AI analysis (llama3) that diagnoses problems, assesses risk, and provides
-copy-paste fix commands — entirely within your local network, no internet required.
+---
+
+## Funkcje / Features
+
+| Funkcja | Opis |
+|---------|------|
+| **Dashboard w czasie rzeczywistym** | CPU, RAM, sieć, dysk — odświeżane co 30s przez WebSocket |
+| **Terminal w przeglądarce** | `docker exec` przez xterm.js — w pełni offline |
+| **Analiza AI** | Streaming llama3/qwen — diagnoza, ocena ryzyka, komendy naprawcze |
+| **Alerty** | Reguły per-kontener, alerty złożone (min. czas trwania N minut) |
+| **Metryki historyczne** | CPU/RAM/Net/Disk co 30s, wykresy do 24h |
+| **Porównanie kontenerów** | Multi-seria CPU/RAM dla wszystkich kontenerów serwera |
+| **Sekrety** | Szyfrowane klucz-wartość w lokalnej bazie |
+| **Wielokrotni użytkownicy** | Konta DB + bcrypt, role admin/user |
+| **Grupy serwerów** | Sidebar z collapsible grupami i kolorami |
+| **Historia zdarzeń** | Crash, restart, stop — timeline per kontener |
+| **Eksport PDF** | Raport AI do pliku PDF |
+| **docker-compose edit** | Edycja i zapis pliku compose z UI |
+| **Akcje kontenerów** | Start / stop / restart z dashboardu |
 
 ---
 
@@ -25,20 +43,17 @@ copy-paste fix commands — entirely within your local network, no internet requ
 │                        SIEĆ LOKALNA / LAN                               │
 │                                                                         │
 │  ┌──────────────────────┐         ┌──────────────────────────────────┐  │
-│  │   SERVER 1 — AI      │         │   SERVER 2 — CENTRAL / WEB       │  │
-│  │  192.168.10.57       │◄────────│   (twój serwer)                  │  │
-│  │  ai.mgmt.pl          │  HTTPS  │                                  │  │
-│  │                      │  SSL    │  ┌─────────────────────────────┐ │  │
-│  │  nginx (SSL)         │ verify  │  │  nginx:80                   │ │  │
-│  │  ┌───────────────┐   │  =False │  │  ┌─────────────────────┐   │ │  │
-│  │  │/llama3/v1 ●   │   │         │  │  │  /        → :8080   │   │ │  │
-│  │  │/qwen/v1       │   │         │  │  │  /ws/     → :8080   │   │ │  │
-│  │  │/vision/v1     │   │         │  │  └─────────────────────┘   │ │  │
-│  │  └───────────────┘   │         │  └────────────┬────────────────┘ │  │
-│  │                      │         │               │                  │  │
-│  │  (istniejący,        │         │  ┌────────────▼────────────────┐ │  │
-│  │   nie modyfikować)   │         │  │  dockermind-web:8080        │ │  │
-│  └──────────────────────┘         │  │  FastAPI + SQLite           │ │  │
+│  │   SERVER AI          │         │   SERVER CENTRAL / WEB           │  │
+│  │  ai.mgmt.pl          │◄────────│                                  │  │
+│  │  nginx (SSL)         │  HTTPS  │  ┌─────────────────────────────┐ │  │
+│  │  /llama3/v1 ●        │         │  │  nginx:80                   │ │  │
+│  └──────────────────────┘         │  │  /  →  dockermind-web:8080  │ │  │
+│                                   │  │  /ws/ →  dockermind-web     │ │  │
+│                                   │  └────────────┬────────────────┘ │  │
+│                                   │               │                  │  │
+│                                   │  ┌────────────▼────────────────┐ │  │
+│                                   │  │  dockermind-web:8080        │ │  │
+│                                   │  │  FastAPI + SQLite           │ │  │
 │                                   │  │  WebSocket hub              │ │  │
 │                                   │  └─────────────────────────────┘ │  │
 │                                   └──────────────────────────────────┘  │
@@ -46,23 +61,15 @@ copy-paste fix commands — entirely within your local network, no internet requ
 │                                     WebSocket│  │WebSocket               │
 │                                              │  │                        │
 │  ┌──────────────────────┐    ┌───────────────┴──┴──────────────────┐    │
-│  │   SERVER 3 — AGENT   │    │   SERVER 4 — AGENT (kolejny)        │    │
-│  │   (monitorowany)     │    │   (monitorowany)                    │    │
-│  │                      │    │                                     │    │
-│  │  dockermind-agent    │    │   dockermind-agent                  │    │
-│  │  ├── Docker SDK      │    │   ├── Docker SDK                    │    │
-│  │  ├── collector.py    │    │   ├── collector.py                  │    │
-│  │  └── /var/run/       │    │   └── /var/run/docker.sock          │    │
-│  │       docker.sock    │    │                                     │    │
+│  │   AGENT 1            │    │   AGENT 2 (kolejny serwer)          │    │
+│  │   dockermind-agent   │    │   dockermind-agent                  │    │
+│  │   ├── Docker SDK     │    │   ├── Docker SDK                    │    │
+│  │   ├── Docker CLI     │    │   ├── Docker CLI                    │    │
+│  │   └── docker.sock    │    │   └── docker.sock                   │    │
 │  └──────────────────────┘    └─────────────────────────────────────┘    │
 │                                                                         │
-│       Browser ──► http://SERVER_2_IP  ──► Dashboard                    │
+│       Browser ──► http://CENTRAL_IP  ──► Dashboard                     │
 └─────────────────────────────────────────────────────────────────────────┘
-
-Przepływ danych / Data flow:
-  Agent  ──WS──►  nginx:80/ws/  ──►  dockermind-web:8080
-  Browser ──HTTP►  nginx:80/     ──►  dockermind-web:8080
-  dockermind-web ──HTTPS(verify=False)──►  ai.mgmt.pl/llama3/v1
 ```
 
 ---
@@ -72,33 +79,32 @@ Przepływ danych / Data flow:
 ```
 dockermind/
 ├── agent/
-│   ├── main.py              # WebSocket client + reconnect loop
+│   ├── main.py              # WebSocket client + reconnect + PTY exec sessions
 │   ├── collector.py         # Docker SDK data collection
-│   ├── Dockerfile
-│   ├── requirements.txt
+│   ├── Dockerfile           # Includes Docker CLI static binary
 │   ├── docker-compose.yml
 │   └── .env.example
 ├── central/
-│   ├── main.py              # FastAPI app entry point + WS endpoints
+│   ├── main.py              # FastAPI + WS endpoints (/ws/agent, /ws/dashboard, /ws/terminal)
 │   ├── config.py            # Settings from .env
-│   ├── models.py            # SQLModel DB models + query helpers
-│   ├── auth.py              # JWT login + agent token verification
-│   ├── websocket_manager.py # Agent tracking + dashboard broadcasting
+│   ├── models.py            # SQLModel DB models + auto-migration
+│   ├── auth.py              # JWT + agent token verification
+│   ├── websocket_manager.py # Agent hub + dashboard broadcasting + terminal routing
 │   ├── routers/
-│   │   ├── auth.py          # POST /api/auth/login
-│   │   ├── servers.py       # GET /api/servers, /containers, /logs, /compose
-│   │   └── analysis.py      # POST /api/analyze, GET/DELETE /api/analyses
-│   ├── ai/
-│   │   └── analyzer.py      # OpenAI client (verify=False) + streaming
+│   │   ├── auth.py          # POST /api/auth/login, GET /api/auth/me
+│   │   ├── servers.py       # Servers, containers, logs, compose, actions
+│   │   ├── analysis.py      # AI analysis + PDF export + email
+│   │   ├── alerts.py        # Alert rules + events
+│   │   ├── metrics.py       # Time-series metric snapshots
+│   │   ├── secrets.py       # Encrypted key-value secrets
+│   │   └── settings.py      # Users, server groups, user groups
 │   ├── Dockerfile
-│   ├── requirements.txt
 │   └── static/
-│       └── index.html       # Single-file SPA (Alpine.js + Tailwind + Chart.js)
+│       └── index.html       # Single-file SPA (Alpine.js + Tailwind + Chart.js + xterm.js)
 ├── nginx/
-│   └── nginx.conf           # Reverse proxy + WebSocket upgrade
-├── docker-compose.yml       # SERVER 2: web + nginx
-├── .env.example             # SERVER 2 environment template
-├── build-and-export.sh      # Offline package builder
+│   └── nginx.conf
+├── docker-compose.yml       # Central: web + nginx
+├── .env.example
 └── README.md
 ```
 
@@ -106,306 +112,148 @@ dockermind/
 
 ## Szybki start / Quick start
 
-### SERVER 2 — Instalacja centrali (PL)
+### Centrala (SERVER WEB)
 
 > Wymagania: Docker + Docker Compose, port 80 wolny.
 
 ```bash
-# 1. Skopiuj pliki na serwer
-scp -r dockermind/ user@192.168.1.100:~/
+# 1. Sklonuj repozytorium
+git clone https://github.com/AdamParciak97/DockerMind.git
+cd DockerMind
 
-# 2. Przejdź do katalogu
-cd ~/dockermind
-
-# 3. Utwórz plik .env na podstawie szablonu
+# 2. Skonfiguruj środowisko
 cp .env.example .env
-nano .env          # ← ustaw hasło, klucze JWT i token agentów
+nano .env          # ustaw CT_PASSWORD, CT_SECRET_KEY, AGENT_SECRET_TOKEN
 
-# 4. Uruchom
-docker compose up -d
+# 3. Zbuduj i uruchom
+docker compose up -d --build
 
-# 5. Sprawdź logi
-docker compose logs -f
-
-# Dashboard dostępny pod: http://192.168.1.100
-# Login: admin / (hasło z .env)
+# Dashboard: http://<IP_SERWERA>
+# Login: admin / <hasło z .env>
 ```
 
----
-
-### SERVER 3+ — Instalacja agenta (PL)
-
-> Wymagania: Docker + Docker Compose, dostęp do SERVER 2 port 80.
+### Agent (na każdym monitorowanym serwerze)
 
 ```bash
-# 1. Skopiuj katalog agent/ na monitorowany serwer
-scp -r dockermind/agent/ user@192.168.1.200:~/dockermind-agent/
+# 1. Skopiuj katalog agent/ na serwer
+scp -r DockerMind/agent/ user@192.168.1.200:~/dockermind-agent/
 
-# 2. Utwórz .env
+# 2. Skonfiguruj
 cd ~/dockermind-agent
 cp .env.example .env
 nano .env
-# Ustaw:
-#   CENTRAL_HOST=192.168.1.100
-#   AGENT_TOKEN=ten-sam-token-co-AGENT_SECRET_TOKEN-na-serwerze-2
-#   AGENT_NAME=nazwa-serwera-produkcyjnego
+# CENTRAL_HOST=192.168.1.100    ← IP centrali
+# AGENT_TOKEN=...               ← identyczny z AGENT_SECRET_TOKEN na centrali
+# AGENT_NAME=nazwa-serwera
 
 # 3. Uruchom
 docker compose up -d
 
-# 4. Sprawdź połączenie
+# 4. Weryfikacja
 docker logs dockermind-agent -f
-# Powinno pojawić się: "Registered as 'nazwa-serwera' (IP)"
-```
-
----
-
-### Quick start — SERVER 2 (EN)
-
-```bash
-cp .env.example .env && nano .env   # set passwords and tokens
-docker compose up -d
-# Dashboard: http://<SERVER2_IP>  |  Login: admin / <your password>
-```
-
-### Quick start — AGENT (EN)
-
-```bash
-cp .env.example .env && nano .env   # set CENTRAL_HOST, AGENT_TOKEN, AGENT_NAME
-docker compose up -d
-docker logs dockermind-agent -f     # verify connection
+# Powinno pojawić się: "Registered as 'nazwa-serwera' (192.168.1.200)"
 ```
 
 ---
 
 ## Konfiguracja .env / Environment variables
 
-### SERVER 2 — `dockermind/.env`
+### Centrala — `.env`
 
 | Zmienna | Domyślna | Opis |
 |---------|----------|------|
-| `CT_USERNAME` | `admin` | Login do dashboardu |
-| `CT_PASSWORD` | *(brak)* | **Wymagane.** Hasło do dashboardu |
-| `CT_SECRET_KEY` | *(brak)* | **Wymagane.** Klucz JWT (min. 32 znaki, losowy) |
+| `CT_USERNAME` | `admin` | Login administratora |
+| `CT_PASSWORD` | *(brak)* | **Wymagane.** Hasło admina |
+| `CT_SECRET_KEY` | *(brak)* | **Wymagane.** Klucz JWT (min. 32 znaki) |
 | `AGENT_SECRET_TOKEN` | *(brak)* | **Wymagane.** Token agentów (min. 32 znaki) |
-| `AI_BASE_URL` | `https://ai.mgmt.pl/llama3/v1` | URL modelu AI |
+| `AI_BASE_URL` | `https://ai.mgmt.pl/llama3/v1` | URL modelu AI (OpenAI-compatible) |
 | `AI_MODEL` | `llama3` | Nazwa modelu |
-| `CT_PORT` | `8080` | Port wewnętrzny FastAPI (nie zmieniaj) |
 | `DB_PATH` | `/app/data/dockermind.db` | Ścieżka do bazy SQLite |
-| `JWT_EXPIRE_MINUTES` | `480` | Czas ważności tokenu JWT (minuty) |
+| `JWT_EXPIRE_MINUTES` | `480` | Czas ważności tokenu JWT |
+| `SMTP_HOST` | *(brak)* | Serwer SMTP do wysyłki raportów |
+| `SMTP_PORT` | `587` | Port SMTP |
+| `SMTP_USER` / `SMTP_PASSWORD` | *(brak)* | Dane uwierzytelniające SMTP |
 
-### SERVER 3+ — `agent/.env`
+### Agent — `agent/.env`
 
 | Zmienna | Przykład | Opis |
 |---------|----------|------|
-| `CENTRAL_HOST` | `192.168.1.100` | IP lub hostname serwera centralnego |
-| `AGENT_TOKEN` | *(token)* | **Musi być identyczny** z `AGENT_SECRET_TOKEN` na serwerze 2 |
-| `AGENT_NAME` | `serwer-prod-01` | Wyświetlana nazwa serwera w dashboardzie |
+| `CENTRAL_HOST` | `192.168.1.100` | IP centrali |
+| `AGENT_TOKEN` | *(token)* | Identyczny z `AGENT_SECRET_TOKEN` na centrali |
+| `AGENT_NAME` | `serwer-prod-01` | Wyświetlana nazwa |
+| `AGENT_IP` | *(auto)* | Nadpisanie auto-wykrytego IP hosta |
 
-> **Generowanie bezpiecznych tokenów:**
-> ```bash
-> openssl rand -hex 32
-> ```
+> Hostname i IP są wykrywane automatycznie: hostname z `/etc/hostname` hosta, IP przez `/proc/1/net`.
 
----
-
-## Jak dodać nowy monitorowany serwer / How to add a new server
-
-1. Skopiuj katalog `agent/` na nowy serwer.
-2. Utwórz `.env` z:
-   - `CENTRAL_HOST` = IP serwera centralnego
-   - `AGENT_TOKEN` = **ten sam token** co `AGENT_SECRET_TOKEN` w `.env` serwera 2
-   - `AGENT_NAME` = unikalną nazwą (np. `baza-danych-01`)
-3. `docker compose up -d`
-4. Serwer pojawi się w sidebarze dashboardu w ciągu 30 sekund.
-
----
-
-## Wdrożenie offline / Offline deployment
-
-### Krok 1 — Budowanie paczki (na maszynie z internetem)
-
-```bash
-cd dockermind/
-chmod +x build-and-export.sh
-./build-and-export.sh
-# Wyjście: dockermind-offline.tar.gz (~600 MB)
-```
-
-Skrypt wykonuje:
-- `docker compose build` — buduje `dockermind-web:1.0` (pobiera frontend assets)
-- `docker build` — buduje `dockermind-agent:1.0`
-- `docker save` — eksportuje obrazy do plików `.tar`
-- Tworzy `offline-package/` z gotowymi skryptami instalacyjnymi
-- Pakuje wszystko do `dockermind-offline.tar.gz`
-
-### Krok 2 — Transfer na docelowe serwery
-
-```bash
-# Na pendrive / przez scp:
-scp dockermind-offline.tar.gz user@192.168.1.100:~/
-```
-
-### Krok 3 — Instalacja SERVER 2 (centrala)
-
-```bash
-tar -xzf dockermind-offline.tar.gz
-cd offline-package/server2/
-bash install.sh
-# Skrypt: docker load → edycja .env → docker compose up -d
-```
-
-### Krok 4 — Instalacja agenta (każdy monitorowany serwer)
-
-```bash
-tar -xzf dockermind-offline.tar.gz
-cd offline-package/agent/
-bash install.sh
-# Skrypt: docker load → edycja .env → docker compose up -d
-```
+> **Generowanie tokenów:** `openssl rand -hex 32`
 
 ---
 
 ## REST API
 
+### Autoryzacja
 | Metoda | Endpoint | Opis |
 |--------|----------|------|
 | `POST` | `/api/auth/login` | Logowanie, zwraca JWT |
-| `GET`  | `/api/health` | Status (publiczny) |
-| `GET`  | `/api/servers` | Lista serwerów z licznikami kontenerów |
+| `GET`  | `/api/auth/me` | Dane zalogowanego użytkownika |
+
+### Serwery i kontenery
+| Metoda | Endpoint | Opis |
+|--------|----------|------|
+| `GET`  | `/api/servers` | Lista serwerów |
 | `GET`  | `/api/servers/{id}` | Szczegóły serwera + kontenery |
-| `GET`  | `/api/servers/{id}/containers` | Lista kontenerów (bez logów) |
-| `GET`  | `/api/servers/{id}/containers/{name}/logs?lines=200` | Pobierz logi |
-| `GET`  | `/api/servers/{id}/containers/{name}/compose` | Pobierz docker-compose.yml |
-| `GET`  | `/api/servers/{id}/containers/{name}/history?days=7` | Dane do wykresów |
-| `POST` | `/api/analyze` | Uruchom analizę AI (streaming przez WS) |
-| `GET`  | `/api/analyses` | Lista zapisanych analiz |
-| `GET`  | `/api/analyses/{id}` | Szczegóły analizy |
-| `DELETE` | `/api/analyses/{id}` | Usuń analizę |
+| `GET`  | `/api/servers/{id}/containers/{name}/logs` | Logi kontenera |
+| `GET`  | `/api/servers/{id}/containers/{name}/compose` | docker-compose.yml |
+| `POST` | `/api/servers/{id}/containers/{name}/compose` | Zapisz docker-compose.yml |
+| `POST` | `/api/servers/{id}/containers/{name}/action` | start/stop/restart |
+| `GET`  | `/api/servers/{id}/containers/{name}/history` | Historia zdarzeń |
 
-### WebSocket endpoints
+### Metryki
+| Metoda | Endpoint | Opis |
+|--------|----------|------|
+| `GET`  | `/api/metrics/{agent_id}/{container}` | Snapshoty CPU/RAM/Net/Disk |
 
+### Analiza AI
+| Metoda | Endpoint | Opis |
+|--------|----------|------|
+| `POST` | `/api/analyze` | Uruchom analizę AI |
+| `GET`  | `/api/analyses` | Lista analiz |
+| `GET`  | `/api/analyses/{id}/pdf` | Eksport do PDF |
+| `POST` | `/api/analyses/{id}/email` | Wyślij mailem |
+
+### Alerty
+| Metoda | Endpoint | Opis |
+|--------|----------|------|
+| `GET`  | `/api/alerts` | Lista reguł |
+| `POST` | `/api/alerts` | Utwórz regułę |
+| `DELETE` | `/api/alerts/{id}` | Usuń regułę |
+| `PUT`  | `/api/alerts/{id}/toggle` | Włącz/wyłącz |
+| `GET`  | `/api/alert-events` | Lista zdarzeń alertów |
+| `POST` | `/api/alert-events/{id}/ack` | Potwierdź zdarzenie |
+
+### Sekrety
+| Metoda | Endpoint | Opis |
+|--------|----------|------|
+| `GET`  | `/api/secrets` | Lista sekretów (wartości ukryte) |
+| `POST` | `/api/secrets` | Utwórz sekret |
+| `GET`  | `/api/secrets/{id}/reveal` | Pokaż wartość |
+| `DELETE` | `/api/secrets/{id}` | Usuń |
+
+### Ustawienia
+| Metoda | Endpoint | Opis |
+|--------|----------|------|
+| `PUT`  | `/api/settings/password` | Zmień hasło |
+| `GET/POST/DELETE` | `/api/users` | Zarządzanie użytkownikami (admin) |
+| `GET/POST/DELETE` | `/api/server-groups` | Grupy serwerów |
+| `PUT`  | `/api/server-groups/{id}/members` | Członkowie grupy |
+| `GET/POST/DELETE` | `/api/user-groups` | Grupy użytkowników |
+
+### WebSocket
 | Endpoint | Opis |
 |----------|------|
-| `ws://HOST/ws/agent` | Połączenie agenta (header: `X-Agent-Token`) |
-| `ws://HOST/ws/dashboard?token=JWT` | Połączenie dashboardu |
-
----
-
-## Rozwiązywanie problemów / Troubleshooting
-
-### Błąd SSL: `certificate verify failed` (SERVER 2 → AI)
-
-**Objaw:** `httpx.ConnectError: [SSL: CERTIFICATE_VERIFY_FAILED]`
-
-**Rozwiązanie:** Sprawdź, czy `extra_hosts` jest ustawione w `docker-compose.yml`:
-```yaml
-extra_hosts:
-  - "ai.mgmt.pl:192.168.10.57"
-```
-Klient AI używa `verify=False` — upewnij się, że `AI_BASE_URL` zaczyna się od `https://`.
-
----
-
-### Agent nie pojawia się w dashboardzie
-
-**Sprawdź kolejno:**
-
-```bash
-# 1. Czy agent jest uruchomiony?
-docker ps | grep dockermind-agent
-
-# 2. Logi agenta
-docker logs dockermind-agent -f
-
-# 3. Czy serwer centralny jest osiągalny?
-curl http://$CENTRAL_HOST/api/health
-
-# 4. Czy tokeny są identyczne?
-# agent/.env:       AGENT_TOKEN=abc123...
-# server2/.env: AGENT_SECRET_TOKEN=abc123...  ← muszą być TAKIE SAME
-```
-
----
-
-### WebSocket rozłącza się co kilka minut
-
-**Objaw:** Dashboard pokazuje "Łączenie..." co jakiś czas.
-
-**Przyczyna:** Timeout nginx lub firewall dla idle połączeń.
-
-**Rozwiązanie:** Sprawdź `nginx.conf` — timeouty powinny wynosić:
-```nginx
-proxy_read_timeout 86400s;
-proxy_send_timeout 86400s;
-```
-Dla firewalli: upewnij się, że przepuszczają długo żyjące TCP connections (lub WebSocket keepalive działa — agent wysyła ping co 20s).
-
----
-
-### Dashboard: "Token nieważny lub wygasł"
-
-```bash
-# Wyloguj się i zaloguj ponownie
-# Lub wydłuż czas ważności w .env:
-JWT_EXPIRE_MINUTES=1440   # 24h
-docker compose restart dockermind-web
-```
-
----
-
-### Baza danych / dysk zapełniony
-
-```bash
-# Sprawdź rozmiar wolumenu
-docker system df -v | grep dockermind_data
-
-# Usuń stare analizy przez API
-curl -X DELETE http://HOST/api/analyses/1 -H "Authorization: Bearer TOKEN"
-
-# Lub wyczyść całą bazę (UWAGA: nieodwracalne!)
-docker compose down
-docker volume rm dockermind_dockermind_data
-docker compose up -d
-```
-
----
-
-### Kontener nie ma logów
-
-**Możliwe przyczyny:**
-- Kontener używa sterownika logów `none` lub `syslog`
-- Kontener jest zbyt nowy i nie wyprodukował jeszcze logów
-- Brak uprawnień do `docker.sock` — sprawdź, czy wolumin jest zamontowany:
-  ```yaml
-  volumes:
-    - /var/run/docker.sock:/var/run/docker.sock:ro
-  ```
-
----
-
-### docker-compose.yml nie jest wykrywany
-
-Agent przeszukuje:
-1. `/etc/dockermind/<nazwa-kontenera>/`
-2. Label kontenera: `com.docker.compose.project.working_dir`
-3. Rekurencyjnie: `/opt/**`, `/home/**`, `/srv/**`, `/root/**`
-
-**Aby wymusić wykrywanie** — utwórz plik w `/etc/dockermind/`:
-```bash
-mkdir -p /etc/dockermind/nazwa-kontenera/
-cp /ścieżka/do/docker-compose.yml /etc/dockermind/nazwa-kontenera/
-```
-
----
-
-## Bezpieczeństwo / Security notes
-
-- Dashboard dostępny tylko przez HTTP — rozważ dodanie HTTPS na nginx w produkcji
-- `AGENT_SECRET_TOKEN` i `CT_SECRET_KEY` powinny mieć min. 32 losowe znaki
-- Kontenery uruchomione z `cap_drop: ALL`, `no-new-privileges`, `read_only`
-- Docker socket zamontowany tylko do odczytu (`:ro`) w agencie
-- Agent nie ma dostępu do internetu — komunikuje się tylko z SERVER 2
+| `ws://HOST/ws/agent?agent_token=TOKEN` | Połączenie agenta |
+| `ws://HOST/ws/dashboard?token=JWT` | Live updates dashboardu |
+| `ws://HOST/ws/terminal?token=JWT&agent_id=ID&container=NAME` | Terminal PTY |
 
 ---
 
@@ -414,21 +262,79 @@ cp /ścieżka/do/docker-compose.yml /etc/dockermind/nazwa-kontenera/
 | Komponent | Technologia |
 |-----------|-------------|
 | Backend   | Python 3.12, FastAPI, Uvicorn |
-| AI client | openai + httpx (SSL verify=False) |
+| AI client | openai + httpx |
 | Database  | SQLite via SQLModel |
 | Auth      | JWT (pyjwt) + bcrypt (passlib) |
 | WebSocket | FastAPI WebSocket + websockets |
-| Docker    | docker-py SDK |
-| Frontend  | Alpine.js 3, Tailwind CSS, Chart.js 4, highlight.js 11 |
+| Terminal  | xterm.js 5.3 + PTY (pty module) |
+| Docker    | docker-py SDK + Docker CLI |
+| PDF       | fpdf2 |
+| Frontend  | Alpine.js 3, Tailwind CSS, Chart.js 4, highlight.js 11, xterm.js 5 |
 | Proxy     | nginx:alpine |
-| Packaging | Docker + docker-compose |
+
+---
+
+## Rozwiązywanie problemów / Troubleshooting
+
+### Agent nie pojawia się w dashboardzie
+
+```bash
+# Logi agenta
+docker logs dockermind-agent -f
+
+# Sprawdź osiągalność centrali
+curl http://$CENTRAL_HOST/api/health
+
+# Tokeny muszą być identyczne:
+# agent/.env:        AGENT_TOKEN=abc123...
+# central/.env:  AGENT_SECRET_TOKEN=abc123...
+```
+
+### Terminal pokazuje "Proces zakończony" od razu
+
+Agent musi mieć dostęp do Docker socket i zamontowany `/proc/1/net`. Sprawdź `docker-compose.yml` agenta:
+```yaml
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock
+  - /:/host
+  - /proc/1/net:/host-proc-net:ro
+```
+
+### Błąd 500 przy wejściu w alerty (po upgrade z v1.0)
+
+Migracja bazy uruchamia się automatycznie przy starcie centrali — dodaje brakującą kolumnę `min_duration`. Jeśli błąd nadal występuje, zrestartuj kontener:
+```bash
+docker compose restart dockermind-web
+```
+
+### WebSocket rozłącza się
+
+Sprawdź `nginx.conf` — timeouty powinny wynosić:
+```nginx
+proxy_read_timeout 86400s;
+proxy_send_timeout 86400s;
+```
+
+### Baza danych / dysk zapełniony
+
+```bash
+# Sprawdź rozmiar
+docker system df -v | grep dockermind_data
+
+# Wyczyść (UWAGA: nieodwracalne!)
+docker compose down
+docker volume rm dockermind_dockermind_data
+docker compose up -d
+```
 
 ---
 
 ## 📸 Screenshots
+
 <img width="1623" height="992" alt="image" src="https://github.com/user-attachments/assets/d321628e-a2f1-40c3-9f52-60237b6c0905" />
 
 <img width="1609" height="637" alt="image" src="https://github.com/user-attachments/assets/49f7172b-24a1-4225-9803-18a873ecb1c1" />
 
+---
 
 *DockerMind — AI diagnostics for your Docker infrastructure, fully offline.*
