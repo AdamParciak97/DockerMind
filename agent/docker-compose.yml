@@ -1,7 +1,7 @@
 services:
   dockermind-agent:
     build: .
-    image: dockermind-agent:1.0
+    image: dockermind-agent:1.2
     container_name: dockermind-agent
     restart: unless-stopped
     volumes:

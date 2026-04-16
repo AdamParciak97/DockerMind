@@ -23,10 +23,13 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from auth import get_current_user
+import re as _re
+
+from auth import get_current_user_info
 from models import (
     Analysis,
     delete_analysis,
+    get_allowed_agent_ids,
     get_analyses,
     get_analysis,
     get_events,
@@ -54,17 +57,14 @@ class AnalyzeRequest(BaseModel):
 async def trigger_analysis(
     body: AnalyzeRequest,
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
-    """
-    1. Fetch fresh container snapshot from agent.
-    2. Run AI analysis (streaming).
-    3. Broadcast tokens to dashboards via WebSocket.
-    4. Save completed analysis to DB.
-    5. Return saved analysis record.
-    """
     agent_id = body.agent_id
     container_name = body.container_name
+
+    allowed = get_allowed_agent_ids(session, info["username"], info["role"])
+    if allowed is not None and agent_id not in allowed:
+        raise HTTPException(status_code=403, detail="Brak dostępu do tego serwera.")
 
     if not manager.is_agent_online(agent_id):
         raise HTTPException(status_code=503, detail=f"Agent '{agent_id}' jest offline.")
@@ -145,9 +145,12 @@ async def list_analyses(
     container_name: str = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
+    allowed = get_allowed_agent_ids(session, info["username"], info["role"])
     analyses = get_analyses(session, agent_id=agent_id, container_name=container_name, limit=limit)
+    if allowed is not None:
+        analyses = [a for a in analyses if a.agent_id in allowed]
     return [_analysis_summary(a) for a in analyses]
 
 
@@ -155,11 +158,14 @@ async def list_analyses(
 async def get_single_analysis(
     analysis_id: int,
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
     obj = get_analysis(session, analysis_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Analiza nie znaleziona.")
+    allowed = get_allowed_agent_ids(session, info["username"], info["role"])
+    if allowed is not None and obj.agent_id not in allowed:
+        raise HTTPException(status_code=403, detail="Brak dostępu do tej analizy.")
     return _analysis_full(obj)
 
 
@@ -167,11 +173,15 @@ async def get_single_analysis(
 async def remove_analysis(
     analysis_id: int,
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
-    ok = delete_analysis(session, analysis_id)
-    if not ok:
+    obj = get_analysis(session, analysis_id)
+    if not obj:
         raise HTTPException(status_code=404, detail="Analiza nie znaleziona.")
+    allowed = get_allowed_agent_ids(session, info["username"], info["role"])
+    if allowed is not None and obj.agent_id not in allowed:
+        raise HTTPException(status_code=403, detail="Brak dostępu do tej analizy.")
+    delete_analysis(session, analysis_id)
     return {"deleted": analysis_id}
 
 
@@ -183,8 +193,11 @@ async def get_history(
     container_name: str,
     days: int = Query(default=7, ge=1, le=30),
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
+    allowed = get_allowed_agent_ids(session, info["username"], info["role"])
+    if allowed is not None and agent_id not in allowed:
+        raise HTTPException(status_code=403, detail="Brak dostępu do tego serwera.")
     events = get_events(session, agent_id, container_name, days=days)
     return {
         "agent_id": agent_id,
@@ -211,11 +224,14 @@ async def get_history(
 async def download_pdf(
     analysis_id: int,
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
     obj = get_analysis(session, analysis_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Analiza nie znaleziona.")
+    allowed = get_allowed_agent_ids(session, info["username"], info["role"])
+    if allowed is not None and obj.agent_id not in allowed:
+        raise HTTPException(status_code=403, detail="Brak dostępu do tej analizy.")
     try:
         pdf_bytes = await asyncio.get_event_loop().run_in_executor(None, _generate_pdf, obj)
     except Exception as e:
@@ -235,24 +251,64 @@ class EmailRequest(BaseModel):
     to: str
 
 
+_EMAIL_RE = _re.compile(r'^[a-zA-Z0-9_.+\-]+@[a-zA-Z0-9\-]+\.[a-zA-Z0-9.\-]+$')
+
+
 @router.post("/api/analyses/{analysis_id}/email")
 async def email_analysis(
     analysis_id: int,
     body: EmailRequest,
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
     from config import settings
-    if not settings.SMTP_HOST:
-        raise HTTPException(status_code=503, detail="SMTP nie jest skonfigurowany (brak SMTP_HOST w .env).")
+
+    if not _EMAIL_RE.match(body.to):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy adres email.")
+
     obj = get_analysis(session, analysis_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Analiza nie znaleziona.")
-    try:
-        await asyncio.get_event_loop().run_in_executor(None, _send_email, body.to, obj, settings)
-    except Exception as e:
-        logger.error("Email send failed: %s", e)
-        raise HTTPException(status_code=500, detail=f"Błąd wysyłki email: {e}")
+    allowed = get_allowed_agent_ids(session, info["username"], info["role"])
+    if allowed is not None and obj.agent_id not in allowed:
+        raise HTTPException(status_code=403, detail="Brak dostępu do tej analizy.")
+
+    if settings.EXCHANGE_ENABLED:
+        # ── Microsoft Graph / Exchange Online ─────────────────────────────────
+        from exchange import send_via_exchange
+        try:
+            pdf_bytes = await asyncio.get_event_loop().run_in_executor(
+                None, _generate_pdf, obj
+            )
+            subject = (
+                f"DockerMind \u2014 Raport AI: "
+                f"{obj.container_name} [{obj.risk_level}]"
+            )
+            await send_via_exchange(
+                to=body.to,
+                subject=subject,
+                html_body=_analysis_to_html(obj),
+                attachment_bytes=pdf_bytes,
+                attachment_name=f"dockermind-{obj.container_name}-{obj.id}.pdf",
+            )
+        except Exception as e:
+            logger.error("Exchange send failed: %s", e)
+            raise HTTPException(status_code=500, detail=f"Błąd wysyłki Exchange: {e}")
+    else:
+        # ── SMTP ──────────────────────────────────────────────────────────────
+        if not settings.SMTP_HOST:
+            raise HTTPException(
+                status_code=503,
+                detail="Brak konfiguracji email. Ustaw SMTP_HOST lub EXCHANGE_ENABLED=true w .env.",
+            )
+        try:
+            await asyncio.get_event_loop().run_in_executor(
+                None, _send_email, body.to, obj, settings
+            )
+        except Exception as e:
+            logger.error("SMTP send failed: %s", e)
+            raise HTTPException(status_code=500, detail=f"Błąd wysyłki SMTP: {e}")
+
     return {"sent": True, "to": body.to}
 
 

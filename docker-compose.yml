@@ -1,7 +1,6 @@
 services:
   dockermind-web:
-    build: ./central
-    image: dockermind-web:1.0
+    image: dockermind-web:1.2
     container_name: dockermind-web
     restart: unless-stopped
     extra_hosts:
@@ -27,13 +26,14 @@ services:
       - /tmp
 
   nginx:
-    image: nginx:alpine
+    image: dockermind-nginx:1.2
     container_name: dockermind-nginx
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - dockermind_ssl:/etc/nginx/ssl
     depends_on:
       - dockermind-web
     security_opt:
@@ -48,3 +48,4 @@ services:
 
 volumes:
   dockermind_data: {}
+  dockermind_ssl: {}

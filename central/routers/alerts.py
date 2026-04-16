@@ -16,8 +16,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from auth import get_current_user
-from models import AlertEvent, AlertRule, get_alert_events, get_alert_rules, get_session
+from auth import get_current_user_info
+from models import AlertEvent, AlertRule, get_alert_events, get_alert_rules, get_allowed_agent_ids, get_session
 
 router = APIRouter(tags=["alerts"])
 
@@ -41,9 +41,12 @@ async def list_rules(
     agent_id: Optional[str] = Query(default=None),
     container_name: Optional[str] = Query(default=None),
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
+    allowed = get_allowed_agent_ids(session, info["username"], info["role"])
     rules = get_alert_rules(session, agent_id=agent_id, container_name=container_name)
+    if allowed is not None:
+        rules = [r for r in rules if r.agent_id in allowed]
     return [_rule_dict(r) for r in rules]
 
 
@@ -51,8 +54,11 @@ async def list_rules(
 async def create_rule(
     body: AlertRuleCreate,
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
+    allowed = get_allowed_agent_ids(session, info["username"], info["role"])
+    if allowed is not None and body.agent_id not in allowed:
+        raise HTTPException(status_code=403, detail="Brak dostępu do tego serwera.")
     if body.metric not in VALID_METRICS:
         raise HTTPException(status_code=400, detail=f"Nieprawidłowa metryka: {body.metric}")
     rule = AlertRule(
@@ -72,11 +78,14 @@ async def create_rule(
 async def delete_rule(
     rule_id: int,
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
     rule = session.get(AlertRule, rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Reguła nie znaleziona.")
+    allowed = get_allowed_agent_ids(session, info["username"], info["role"])
+    if allowed is not None and rule.agent_id not in allowed:
+        raise HTTPException(status_code=403, detail="Brak dostępu do tego serwera.")
     session.delete(rule)
     session.commit()
     return {"deleted": rule_id}
@@ -86,11 +95,14 @@ async def delete_rule(
 async def toggle_rule(
     rule_id: int,
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
     rule = session.get(AlertRule, rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Reguła nie znaleziona.")
+    allowed = get_allowed_agent_ids(session, info["username"], info["role"])
+    if allowed is not None and rule.agent_id not in allowed:
+        raise HTTPException(status_code=403, detail="Brak dostępu do tego serwera.")
     rule.enabled = not rule.enabled
     session.add(rule)
     session.commit()
@@ -106,8 +118,9 @@ async def list_events(
     status: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
+    allowed = get_allowed_agent_ids(session, info["username"], info["role"])
     events = get_alert_events(
         session,
         agent_id=agent_id,
@@ -115,6 +128,8 @@ async def list_events(
         status=status,
         limit=limit,
     )
+    if allowed is not None:
+        events = [e for e in events if e.agent_id in allowed]
     return [_event_dict(e) for e in events]
 
 
@@ -122,11 +137,14 @@ async def list_events(
 async def acknowledge_event(
     event_id: int,
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
     evt = session.get(AlertEvent, event_id)
     if not evt:
         raise HTTPException(status_code=404, detail="Zdarzenie nie znalezione.")
+    allowed = get_allowed_agent_ids(session, info["username"], info["role"])
+    if allowed is not None and evt.agent_id not in allowed:
+        raise HTTPException(status_code=403, detail="Brak dostępu do tego serwera.")
     evt.status = "acknowledged"
     evt.ack_at = datetime.now(timezone.utc)
     session.add(evt)

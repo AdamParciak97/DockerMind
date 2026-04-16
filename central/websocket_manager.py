@@ -45,12 +45,24 @@ class AgentConnection:
         self.pending_requests: dict[str, asyncio.Future] = {}
 
 
+class DashboardSession:
+    """Holds state for one connected dashboard browser."""
+    __slots__ = ("ws", "username", "role", "allowed_agents")
+
+    def __init__(self, ws: WebSocket, username: str, role: str, allowed_agents):
+        self.ws = ws
+        self.username = username
+        self.role = role
+        # None → widzi wszystko; set[str] → tylko te agent_ids
+        self.allowed_agents = allowed_agents
+
+
 class WebSocketManager:
     def __init__(self):
         # agent_id → AgentConnection
         self._agents: dict[str, AgentConnection] = {}
-        # session_id → WebSocket (dashboard browsers)
-        self._dashboards: dict[str, WebSocket] = {}
+        # session_id → DashboardSession
+        self._dashboards: dict[str, DashboardSession] = {}
         # session_id → WebSocket (terminal browser sessions)
         self._terminals: dict[str, WebSocket] = {}
         # lock for mutating the dicts
@@ -285,11 +297,17 @@ class WebSocketManager:
 
     # ── Dashboard connections ──────────────────────────────────────────────────
 
-    async def connect_dashboard(self, ws: WebSocket) -> str:
+    async def connect_dashboard(self, ws: WebSocket, username: str, role: str, allowed_agents) -> str:
+        """
+        Register a dashboard session.
+        allowed_agents: None = see all, set[str] = restricted to these agent_ids.
+        """
         session_id = str(uuid.uuid4())
         async with self._lock:
-            self._dashboards[session_id] = ws
-        logger.info("Dashboard connected: %s", session_id[:8])
+            self._dashboards[session_id] = DashboardSession(
+                ws=ws, username=username, role=role, allowed_agents=allowed_agents
+            )
+        logger.info("Dashboard connected: %s (user=%s)", session_id[:8], username)
         return session_id
 
     async def disconnect_dashboard(self, session_id: str) -> None:
@@ -298,21 +316,31 @@ class WebSocketManager:
         logger.info("Dashboard disconnected: %s", session_id[:8])
 
     async def broadcast_to_dashboards(self, event: str, data: dict) -> None:
-        """Send event to all connected dashboard WebSockets. Drop dead connections."""
+        """Send event to connected dashboards, filtering by allowed_agents."""
         if not self._dashboards:
             return
 
-        message = json.dumps(
-            {"event": event, "data": data}, ensure_ascii=False, default=str
-        )
+        # Events that carry an agent_id — need per-session filtering
+        _AGENT_EVENTS = {
+            "agent_data", "agent_online", "agent_offline", "alert_triggered",
+            "analysis_start", "analysis_token", "analysis_done", "analysis_error",
+        }
+        agent_id = data.get("agent_id") if event in _AGENT_EVENTS else None
 
         dead: list[str] = []
         async with self._lock:
             snapshot = dict(self._dashboards)
 
-        for session_id, ws in snapshot.items():
+        for session_id, sess in snapshot.items():
+            # Skip if this session has no access to the agent
+            if agent_id is not None and sess.allowed_agents is not None:
+                if agent_id not in sess.allowed_agents:
+                    continue
+            message = json.dumps(
+                {"event": event, "data": data}, ensure_ascii=False, default=str
+            )
             try:
-                await ws.send_text(message)
+                await sess.ws.send_text(message)
             except Exception:
                 dead.append(session_id)
 
@@ -320,6 +348,13 @@ class WebSocketManager:
             async with self._lock:
                 for sid in dead:
                     self._dashboards.pop(sid, None)
+
+    def get_agents_filtered(self, allowed_agents) -> list[dict]:
+        """Return agents filtered by allowed_agents (None = all)."""
+        all_agents = self.get_all_agents()
+        if allowed_agents is None:
+            return all_agents
+        return [a for a in all_agents if a["agent_id"] in allowed_agents]
 
     # ── State queries (for REST API) ───────────────────────────────────────────
 
@@ -396,6 +431,7 @@ class WebSocketManager:
         try:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, _cleanup_metrics_sync)
+            await loop.run_in_executor(None, _cleanup_revoked_tokens_sync)
         except Exception as e:
             logger.error("Metrics cleanup error: %s", e)
 
@@ -425,3 +461,11 @@ def _cleanup_metrics_sync() -> None:
     from sqlmodel import Session
     with Session(engine) as session:
         cleanup_old_snapshots(session)
+
+
+def _cleanup_revoked_tokens_sync() -> None:
+    from models import engine, cleanup_revoked_tokens, cleanup_expired_sessions
+    from sqlmodel import Session
+    with Session(engine) as session:
+        cleanup_revoked_tokens(session)
+        cleanup_expired_sessions(session)
