@@ -16,7 +16,9 @@ RUN pip install --no-cache-dir \
     bcrypt==3.2.2 \
     python-multipart==0.0.9 \
     aiosqlite==0.20.0 \
-    fpdf2==2.7.9
+    fpdf2==2.7.9 \
+    ldap3==2.9.1 \
+    "cryptography>=42.0.0"
 
 WORKDIR /app
 

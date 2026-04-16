@@ -74,12 +74,14 @@
       <div>
         <label class="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Użytkownik</label>
         <input type="text" x-model="lf.u" @keydown.enter="login()"
+          autocomplete="off" spellcheck="false"
           class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5
                  text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
       </div>
       <div>
         <label class="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Hasło</label>
         <input type="password" x-model="lf.p" @keydown.enter="login()"
+          autocomplete="new-password"
           class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5
                  text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
       </div>
@@ -93,6 +95,18 @@
       </button>
     </div>
   </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     INACTIVITY WARNING BANNER
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div x-show="_inactivityWarning"
+     class="fixed top-0 left-0 right-0 z-50 bg-yellow-600 text-white text-center py-2 text-sm font-medium shadow-lg">
+  Sesja wygaśnie za 2 minuty z powodu braku aktywności.
+  <button @click="_resetInactivityTimer()"
+          class="ml-3 underline font-semibold hover:text-yellow-100">
+    Przedłuż sesję
+  </button>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
@@ -384,9 +398,25 @@
             <button @click="settingsTab='srvgroups'"
               :class="settingsTab==='srvgroups' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
               class="px-4 py-1.5 rounded-lg text-sm transition-all">🖥 Grupy serwerów</button>
-            <button @click="settingsTab='usrgroups'"
+            <button @click="settingsTab='usrgroups'; loadUserGroups(); loadServerGroups()"
               :class="settingsTab==='usrgroups' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
               class="px-4 py-1.5 rounded-lg text-sm transition-all">👥 Grupy użytkowników</button>
+            <button @click="settingsTab='ldap'; loadLdapConfig()"
+              :class="settingsTab==='ldap' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
+              class="px-4 py-1.5 rounded-lg text-sm transition-all">🔐 LDAP</button>
+            <button @click="settingsTab='sessions'; loadSessions()"
+              :class="settingsTab==='sessions' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
+              class="px-4 py-1.5 rounded-lg text-sm transition-all">🖥 Sesje</button>
+            <template x-if="myRole === 'admin'">
+              <button @click="settingsTab='auditlog'; loadAuditLogs()"
+                :class="settingsTab==='auditlog' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
+                class="px-4 py-1.5 rounded-lg text-sm transition-all">📋 Audit log</button>
+            </template>
+            <template x-if="myRole === 'admin'">
+              <button @click="settingsTab='system'; loadAgentTokenInfo()"
+                :class="settingsTab==='system' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
+                class="px-4 py-1.5 rounded-lg text-sm transition-all">⚙ System</button>
+            </template>
           </div>
 
           <!-- ── Hasło ── -->
@@ -425,16 +455,32 @@
               <div>
                 <!-- Add user form -->
                 <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-5">
-                  <div class="text-sm font-semibold text-gray-400 mb-3">Dodaj użytkownika</div>
+                  <div class="flex items-center justify-between mb-3">
+                    <div class="text-sm font-semibold text-gray-400">Dodaj użytkownika</div>
+                    <!-- Source toggle -->
+                    <div class="flex rounded-lg overflow-hidden border border-gray-700 text-xs">
+                      <button @click="newUserForm.source='db'"
+                        :class="newUserForm.source==='db' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'"
+                        class="px-3 py-1.5 transition-colors">Lokalny</button>
+                      <button @click="newUserForm.source='ldap'"
+                        :class="newUserForm.source==='ldap' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'"
+                        class="px-3 py-1.5 transition-colors">LDAP / AD</button>
+                    </div>
+                  </div>
                   <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-                    <input x-model="newUserForm.username" placeholder="Nazwa użytkownika"
+                    <input x-model="newUserForm.username" placeholder="Nazwa użytkownika (login AD)"
                       class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
                              text-sm text-white placeholder-gray-600
                              focus:outline-none focus:border-blue-500">
-                    <input x-model="newUserForm.password" type="password" placeholder="Hasło (min. 6)"
+                    <input x-show="newUserForm.source==='db'"
+                      x-model="newUserForm.password" type="password" placeholder="Hasło (min. 8 znaków)"
                       class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
                              text-sm text-white placeholder-gray-600
                              focus:outline-none focus:border-blue-500">
+                    <div x-show="newUserForm.source==='ldap'"
+                      class="flex items-center px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-500">
+                      Hasło z Active Directory (nie zapisywane)
+                    </div>
                     <select x-model="newUserForm.role"
                       class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
                              text-sm text-gray-200 focus:outline-none cursor-pointer">
@@ -442,9 +488,12 @@
                       <option value="admin">Administrator</option>
                     </select>
                   </div>
+                  <div x-show="newUserForm.source==='ldap'" class="text-xs text-gray-600 mb-3">
+                    Stub LDAP — użytkownik loguje się hasłem z AD, ale rola (admin/user) pochodzi z DockerMind.
+                  </div>
                   <div x-show="newUserForm.err" class="text-red-400 text-sm mb-2" x-text="newUserForm.err"></div>
                   <button @click="createUser()"
-                    :disabled="!newUserForm.username || !newUserForm.password"
+                    :disabled="!newUserForm.username || (newUserForm.source==='db' && !newUserForm.password)"
                     class="bg-blue-600 hover:bg-blue-500 disabled:opacity-40
                            text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
                     + Dodaj użytkownika
@@ -463,6 +512,8 @@
                               x-text="u.role"></span>
                         <span x-show="u.source==='env'"
                               class="text-xs text-gray-600">(.env)</span>
+                        <span x-show="u.source==='ldap'"
+                              class="text-xs px-2 py-0.5 rounded border bg-indigo-900/40 text-indigo-400 border-indigo-800">LDAP</span>
                       </div>
                       <button x-show="u.source !== 'env' && u.username !== me"
                         @click="deleteUser(u.username)"
@@ -564,21 +615,55 @@
                     <button @click="deleteUsrGroup(grp.id)"
                       class="text-gray-600 hover:text-red-400 text-sm transition-colors">✕ Usuń</button>
                   </div>
-                  <div class="space-y-1.5">
-                    <template x-for="u in users.filter(u=>u.source!=='env')" :key="u.username">
-                      <label class="flex items-center gap-2 cursor-pointer text-sm">
-                        <input type="checkbox"
-                          :checked="grp.members.includes(u.username)"
-                          @change="toggleUsrGroupMember(grp, u.username)"
-                          class="rounded border-gray-600 bg-gray-800 text-blue-500">
-                        <span class="text-gray-300" x-text="u.username"></span>
-                        <span :class="u.role==='admin' ? 'text-yellow-600' : 'text-gray-600'"
-                              class="text-xs" x-text="u.role"></span>
-                      </label>
+                  <!-- Current members -->
+                  <div class="flex flex-wrap gap-2 mb-3" x-show="grp.members.length > 0">
+                    <template x-for="uname in grp.members" :key="uname">
+                      <span class="flex items-center gap-1 bg-gray-800 border border-gray-700
+                                   rounded-full px-2 py-0.5 text-xs text-gray-300">
+                        <span x-text="uname"></span>
+                        <button @click="removeUsrGroupMember(grp, uname)"
+                          class="text-gray-600 hover:text-red-400 ml-1 leading-none">✕</button>
+                      </span>
                     </template>
-                    <template x-if="users.filter(u=>u.source!=='env').length===0">
-                      <div class="text-gray-700 text-xs">Brak użytkowników DB. Utwórz konto w zakładce Użytkownicy.</div>
-                    </template>
+                  </div>
+                  <div x-show="grp.members.length === 0" class="text-gray-700 text-xs mb-3">Brak członków.</div>
+                  <!-- Add member input (any username — DB or LDAP/AD) -->
+                  <div class="flex gap-2 mb-4">
+                    <input
+                      :id="`ugrp-input-${grp.id}`"
+                      type="text" placeholder="Login użytkownika (DB lub AD)…"
+                      @keydown.enter="addUsrGroupMemberFromInput(grp)"
+                      class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5
+                             text-xs text-white placeholder-gray-600
+                             focus:outline-none focus:border-blue-500">
+                    <button @click="addUsrGroupMemberFromInput(grp)"
+                      class="bg-gray-700 hover:bg-gray-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors">
+                      + Dodaj
+                    </button>
+                  </div>
+                  <!-- Server group access (visibility restriction) -->
+                  <div class="border-t border-gray-800 pt-3 mt-1">
+                    <div class="text-xs text-gray-500 mb-2 font-medium">
+                      Widoczne grupy serwerów
+                      <span class="text-gray-700 font-normal ml-1">— brak zaznaczenia = widzi wszystko</span>
+                    </div>
+                    <div class="space-y-1">
+                      <template x-for="sg in serverGroups" :key="sg.id">
+                        <label class="flex items-center gap-2 cursor-pointer text-xs">
+                          <input type="checkbox"
+                            :checked="grp.server_group_ids && grp.server_group_ids.includes(sg.id)"
+                            @change="toggleUsrGroupServerGroup(grp, sg.id)"
+                            class="rounded border-gray-600 bg-gray-800 text-blue-500">
+                          <span class="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                :style="`background:${sg.color}`"></span>
+                          <span class="text-gray-300" x-text="sg.name"></span>
+                          <span class="text-gray-600" x-text="`(${sg.members.length} serwerów)`"></span>
+                        </label>
+                      </template>
+                      <template x-if="serverGroups.length === 0">
+                        <div class="text-gray-700 text-xs">Brak grup serwerów. Utwórz w zakładce Grupy Serwerów.</div>
+                      </template>
+                    </div>
                   </div>
                 </div>
               </template>
@@ -586,6 +671,345 @@
                 <div class="text-center py-8 text-gray-700 text-sm">Brak grup użytkowników.</div>
               </template>
             </div>
+          </div>
+
+          <!-- ── LDAP ── -->
+          <div x-show="settingsTab==='ldap'">
+            <template x-if="myRole !== 'admin'">
+              <div class="text-gray-500 text-sm py-6">Tylko administrator może konfigurować LDAP.</div>
+            </template>
+            <template x-if="myRole === 'admin'">
+              <div class="space-y-5">
+
+                <!-- Enable toggle -->
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <div class="text-sm font-semibold text-gray-300">Logowanie przez LDAP / Active Directory</div>
+                      <div class="text-xs text-gray-600 mt-0.5">Gdy włączone, użytkownicy mogą logować się danymi z katalogu.</div>
+                    </div>
+                    <button @click="ldapForm.enabled = !ldapForm.enabled"
+                      :class="ldapForm.enabled ? 'bg-blue-600' : 'bg-gray-700'"
+                      class="relative w-11 h-6 rounded-full transition-colors flex-shrink-0">
+                      <span :class="ldapForm.enabled ? 'translate-x-5' : 'translate-x-1'"
+                            class="block w-4 h-4 bg-white rounded-full transition-transform mt-1"></span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Server settings -->
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-4">
+                  <div class="text-sm font-semibold text-gray-400">Serwer</div>
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div class="md:col-span-2">
+                      <label class="text-xs text-gray-500 mb-1 block">Adres serwera LDAP</label>
+                      <input x-model="ldapForm.server" placeholder="192.168.1.10 lub ldap.firma.pl"
+                        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                               text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500">
+                    </div>
+                    <div>
+                      <label class="text-xs text-gray-500 mb-1 block">Port</label>
+                      <input x-model.number="ldapForm.port" type="number" placeholder="389"
+                        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                               text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500">
+                    </div>
+                  </div>
+                  <div class="flex flex-wrap gap-5 pt-1">
+                    <label class="flex items-center gap-2 cursor-pointer text-sm text-gray-400">
+                      <input type="checkbox" x-model="ldapForm.use_ssl"
+                        class="rounded border-gray-600 bg-gray-800 text-blue-500">
+                      LDAPS (SSL, port 636)
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer text-sm text-gray-400">
+                      <input type="checkbox" x-model="ldapForm.use_tls"
+                        class="rounded border-gray-600 bg-gray-800 text-blue-500">
+                      STARTTLS
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer text-sm text-gray-400">
+                      <input type="checkbox" x-model="ldapForm.tls_verify"
+                        class="rounded border-gray-600 bg-gray-800 text-blue-500">
+                      Weryfikuj certyfikat TLS
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Bind / search settings -->
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-3">
+                  <div class="text-sm font-semibold text-gray-400">Konto serwisowe i wyszukiwanie</div>
+                  <div>
+                    <label class="text-xs text-gray-500 mb-1 block">Bind DN (konto serwisowe)</label>
+                    <input x-model="ldapForm.bind_dn"
+                      placeholder="cn=svc-dockermind,ou=service,dc=firma,dc=pl"
+                      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                             text-sm text-white placeholder-gray-600 font-mono focus:outline-none focus:border-blue-500">
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-500 mb-1 block">Hasło konta serwisowego</label>
+                    <input x-model="ldapForm.bind_password" type="password"
+                      placeholder="Zostaw puste aby nie zmieniać"
+                      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                             text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500">
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-500 mb-1 block">Base DN</label>
+                    <input x-model="ldapForm.base_dn"
+                      placeholder="ou=users,dc=firma,dc=pl"
+                      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                             text-sm text-white placeholder-gray-600 font-mono focus:outline-none focus:border-blue-500">
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-500 mb-1 block">
+                      Filtr użytkownika
+                      <span class="text-gray-600 ml-1">— {username} zostanie zastąpione nazwą logowania</span>
+                    </label>
+                    <input x-model="ldapForm.user_filter"
+                      placeholder="(sAMAccountName={username})"
+                      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                             text-sm text-white placeholder-gray-600 font-mono focus:outline-none focus:border-blue-500">
+                    <div class="text-xs text-gray-600 mt-1">Active Directory: <code class="text-gray-500">(sAMAccountName={username})</code> &nbsp; OpenLDAP: <code class="text-gray-500">(uid={username})</code></div>
+                  </div>
+                </div>
+
+                <!-- Role mapping -->
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-3">
+                  <div class="text-sm font-semibold text-gray-400">Mapowanie ról</div>
+                  <div>
+                    <label class="text-xs text-gray-500 mb-1 block">
+                      DN grupy administratorów
+                      <span class="text-gray-600 ml-1">— członkowie tej grupy otrzymują rolę admin. Zostaw puste = wszyscy LDAP-userzy mają rolę user.</span>
+                    </label>
+                    <input x-model="ldapForm.admin_group_dn"
+                      placeholder="cn=dockermind-admins,ou=groups,dc=firma,dc=pl"
+                      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                             text-sm text-white placeholder-gray-600 font-mono focus:outline-none focus:border-blue-500">
+                  </div>
+                </div>
+
+                <!-- Test connection -->
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-3">
+                  <div class="text-sm font-semibold text-gray-400">Test połączenia</div>
+                  <div class="text-xs text-gray-600">Najpierw zapisz konfigurację, potem testuj.</div>
+                  <div class="flex gap-3 flex-wrap items-center">
+                    <input x-model="ldapForm.testUsername" placeholder="Opcjonalnie: szukaj użytkownika (np. jkowalski)"
+                      class="flex-1 min-w-[200px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                             text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500">
+                    <button @click="testLdapConnection()" :disabled="ldapForm.testLoading"
+                      class="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40
+                             text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors whitespace-nowrap">
+                      <span x-show="!ldapForm.testLoading">⚡ Testuj połączenie</span>
+                      <span x-show="ldapForm.testLoading">⏳ Testuję...</span>
+                    </button>
+                  </div>
+                  <div x-show="ldapForm.testResult"
+                       :class="ldapForm.testOk ? 'text-green-400 bg-green-900/20 border-green-800' : 'text-red-400 bg-red-900/20 border-red-800'"
+                       class="text-sm px-3 py-2 rounded-lg border"
+                       x-text="ldapForm.testResult"></div>
+                </div>
+
+                <!-- Feedback / actions -->
+                <div x-show="ldapForm.err" class="text-red-400 text-sm px-1" x-text="ldapForm.err"></div>
+                <div x-show="ldapForm.ok"  class="text-green-400 text-sm px-1" x-text="ldapForm.ok"></div>
+                <div class="flex gap-3">
+                  <button @click="saveLdapConfig()" :disabled="ldapForm.saving"
+                    class="bg-blue-600 hover:bg-blue-500 disabled:opacity-40
+                           text-white text-sm font-semibold px-6 py-2 rounded-lg transition-colors">
+                    <span x-show="!ldapForm.saving">Zapisz konfigurację</span>
+                    <span x-show="ldapForm.saving">Zapisywanie...</span>
+                  </button>
+                  <button @click="loadLdapConfig()"
+                    class="bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm px-4 py-2 rounded-lg transition-colors">
+                    Odśwież
+                  </button>
+                </div>
+
+              </div>
+            </template>
+          </div>
+
+          <!-- ── Sesje ── -->
+          <div x-show="settingsTab==='sessions'">
+            <div class="flex items-center justify-between mb-3">
+              <div class="text-sm font-semibold text-gray-400">Aktywne sesje</div>
+              <button @click="loadSessions()"
+                class="text-xs text-gray-500 hover:text-gray-300 transition-colors">⟳ Odśwież</button>
+            </div>
+            <div class="bg-gray-900 border border-gray-800 rounded-2xl overflow-x-auto">
+              <table class="w-full text-xs">
+                <thead>
+                  <tr class="border-b border-gray-800 text-gray-500">
+                    <th class="text-left px-4 py-2">Użytkownik</th>
+                    <th class="text-left px-4 py-2">IP</th>
+                    <th class="text-left px-4 py-2">Zalogowano</th>
+                    <th class="text-left px-4 py-2">Wygasa</th>
+                    <th class="text-left px-4 py-2">Przeglądarka</th>
+                    <th class="px-4 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="s in sessions" :key="s.jti">
+                    <tr class="border-b border-gray-800/50 hover:bg-gray-800/30">
+                      <td class="px-4 py-2 text-blue-400 font-medium">
+                        <span x-text="s.username"></span>
+                        <span x-show="s.is_current"
+                              class="ml-1 text-xs bg-green-900/50 text-green-400 px-1.5 py-0.5 rounded-full">
+                          ta sesja
+                        </span>
+                      </td>
+                      <td class="px-4 py-2 text-gray-400 font-mono" x-text="s.ip || '—'"></td>
+                      <td class="px-4 py-2 text-gray-500 whitespace-nowrap"
+                          x-text="new Date(s.created_at).toLocaleString('pl-PL')"></td>
+                      <td class="px-4 py-2 text-gray-500 whitespace-nowrap"
+                          x-text="new Date(s.expires_at).toLocaleString('pl-PL')"></td>
+                      <td class="px-4 py-2 text-gray-600 truncate max-w-xs"
+                          x-text="s.user_agent || '—'"></td>
+                      <td class="px-4 py-2 text-right">
+                        <button @click="revokeSession(s.jti)"
+                          :disabled="s.is_current"
+                          :class="s.is_current ? 'opacity-30 cursor-default' : 'hover:text-red-300'"
+                          class="text-red-500 text-xs px-2 py-1 rounded transition-colors">
+                          Unieważnij
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                  <template x-if="sessions.length === 0">
+                    <tr>
+                      <td colspan="6" class="px-4 py-6 text-center text-gray-600">Brak aktywnych sesji</td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- ── Audit log ── -->
+          <div x-show="settingsTab==='auditlog'">
+            <template x-if="myRole !== 'admin'">
+              <div class="text-gray-500 text-sm py-6">Tylko administrator może przeglądać audit log.</div>
+            </template>
+            <template x-if="myRole === 'admin'">
+              <div>
+                <div class="flex items-center justify-between mb-3">
+                  <div class="text-sm font-semibold text-gray-400">Ostatnie zdarzenia</div>
+                  <button @click="loadAuditLogs()"
+                    class="text-xs text-gray-500 hover:text-gray-300 transition-colors">⟳ Odśwież</button>
+                </div>
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+                  <table class="w-full text-xs">
+                    <thead>
+                      <tr class="border-b border-gray-800 text-gray-500">
+                        <th class="text-left px-4 py-2">Czas</th>
+                        <th class="text-left px-4 py-2">Użytkownik</th>
+                        <th class="text-left px-4 py-2">Akcja</th>
+                        <th class="text-left px-4 py-2">IP</th>
+                        <th class="text-left px-4 py-2">Szczegóły</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="lg in auditLogs" :key="lg.id">
+                        <tr class="border-b border-gray-800/50 hover:bg-gray-800/30">
+                          <td class="px-4 py-2 text-gray-500 whitespace-nowrap font-mono"
+                              x-text="new Date(lg.occurred_at).toLocaleString('pl-PL')"></td>
+                          <td class="px-4 py-2 text-blue-400 font-medium" x-text="lg.username"></td>
+                          <td class="px-4 py-2">
+                            <span :class="{
+                              'text-red-400':   lg.action.includes('fail') || lg.action.includes('error'),
+                              'text-green-400': lg.action === 'login_success',
+                              'text-yellow-400': lg.action === 'logout',
+                              'text-gray-300':  true
+                            }" x-text="lg.action"></span>
+                          </td>
+                          <td class="px-4 py-2 text-gray-500 font-mono" x-text="lg.ip || '—'"></td>
+                          <td class="px-4 py-2 text-gray-500 font-mono truncate max-w-xs" x-text="lg.detail || ''"></td>
+                        </tr>
+                      </template>
+                      <template x-if="auditLogs.length === 0">
+                        <tr>
+                          <td colspan="5" class="px-4 py-6 text-center text-gray-600">Brak wpisów</td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- ── System ── -->
+          <div x-show="settingsTab==='system'">
+            <template x-if="myRole !== 'admin'">
+              <div class="text-gray-500 text-sm py-6">Tylko administrator.</div>
+            </template>
+            <template x-if="myRole === 'admin'">
+              <div class="space-y-5">
+
+                <!-- Agent token -->
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+                  <div class="text-sm font-semibold text-gray-300 mb-1">Token agenta (AGENT_SECRET_TOKEN)</div>
+                  <div class="text-xs text-gray-600 mb-4">
+                    Klucz używany przez agentów do uwierzytelnienia. Po rotacji zaktualizuj go w każdym agencie.
+                  </div>
+
+                  <!-- Current token info -->
+                  <div x-show="agentTokenInfo" class="text-xs text-gray-500 mb-3 space-y-1">
+                    <div>Źródło:
+                      <span :class="agentTokenInfo?.source === 'db' ? 'text-blue-400' : 'text-yellow-400'"
+                            x-text="agentTokenInfo?.source === 'db' ? 'baza danych (rotowany)' : 'zmienna środowiskowa (.env)'">
+                      </span>
+                    </div>
+                    <div x-show="agentTokenInfo?.created_at">
+                      Wygenerowany: <span class="text-gray-400"
+                        x-text="agentTokenInfo?.created_at ? new Date(agentTokenInfo.created_at).toLocaleString('pl-PL') : ''"></span>
+                      przez <span class="text-gray-400" x-text="agentTokenInfo?.created_by || ''"></span>
+                    </div>
+                    <div x-show="agentTokenInfo?.masked">
+                      Token: <span class="font-mono text-gray-400" x-text="agentTokenInfo?.masked || ''"></span>
+                    </div>
+                  </div>
+
+                  <!-- Newly generated token (show once) -->
+                  <div x-show="agentTokenNew"
+                       class="mb-4 bg-yellow-950/40 border border-yellow-800 rounded-xl p-4">
+                    <div class="text-xs text-yellow-400 font-semibold mb-2">
+                      ⚠ Nowy token — zapisz go teraz, nie zostanie pokazany ponownie!
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <code class="flex-1 bg-gray-950 text-green-400 text-xs px-3 py-2 rounded-lg font-mono break-all"
+                            x-text="agentTokenNew"></code>
+                      <button @click="navigator.clipboard.writeText(agentTokenNew); agentTokenCopied = true; setTimeout(() => agentTokenCopied = false, 2000)"
+                        class="bg-gray-700 hover:bg-gray-600 text-xs text-gray-300 px-3 py-2 rounded-lg flex-shrink-0 transition-colors">
+                        <span x-show="!agentTokenCopied">Kopiuj</span>
+                        <span x-show="agentTokenCopied" class="text-green-400">✓</span>
+                      </button>
+                    </div>
+                    <div class="text-xs text-yellow-600 mt-2">
+                      Zaktualizuj wartość <code class="text-yellow-500">AGENT_SECRET_TOKEN</code>
+                      w każdym agencie i zrestartuj agenty.
+                    </div>
+                  </div>
+
+                  <button @click="rotateAgentToken()" :disabled="agentTokenLoading"
+                    class="bg-orange-700 hover:bg-orange-600 disabled:opacity-40
+                           text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors">
+                    <span x-show="!agentTokenLoading">🔄 Wygeneruj nowy token</span>
+                    <span x-show="agentTokenLoading">Generowanie...</span>
+                  </button>
+                </div>
+
+                <!-- Backup -->
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+                  <div class="text-sm font-semibold text-gray-300 mb-1">Backup bazy danych</div>
+                  <div class="text-xs text-gray-600 mb-4">
+                    Pobierz spójną kopię bazy SQLite (użytkownicy, alerty, analizy, sekrety, konfiguracja).
+                  </div>
+                  <button @click="downloadBackup()"
+                    class="bg-blue-700 hover:bg-blue-600 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors">
+                    ⬇ Pobierz backup
+                  </button>
+                </div>
+
+              </div>
+            </template>
           </div>
 
         </div>
@@ -1713,10 +2137,16 @@ function app() {
 
     /* ── Auth ──────────────────────────────────────────────────────────── */
     loggedIn: false,
-    lf: { u: 'admin', p: '', err: '' },
-    token: null,
+    lf: { u: '', p: '', err: '' },
     me: '',
     myRole: 'user',
+
+    /* ── Inactive session timeout ──────────────────────────────────────── */
+    _inactivityTimer: null,
+    _inactivityWarnTimer: null,
+    _inactivityWarning: false,
+    _INACTIVITY_WARN:   13 * 60 * 1000,   // 13 min → show warning
+    _INACTIVITY_LOGOUT: 15 * 60 * 1000,   // 15 min → auto-logout
 
     /* ── WebSocket ─────────────────────────────────────────────────────── */
     ws: null,
@@ -1801,15 +2231,30 @@ function app() {
     allAlertsFilter: '',   // '' | 'active' | 'acknowledged'
 
     /* ── Settings page ─────────────────────────────────────────────────── */
-    settingsTab: 'password',   // 'password' | 'users' | 'srvgroups' | 'usrgroups'
+    settingsTab: 'password',
+    auditLogs: [],
+    sessions: [],
+    sessionsLoading: false,
+    agentTokenInfo: null,
+    agentTokenNew: '',
+    agentTokenLoading: false,
+    agentTokenCopied: false,
     pwForm: { current: '', new1: '', new2: '', err: '', ok: '' },
     users: [],
     usersLoading: false,
-    newUserForm: { username: '', password: '', role: 'user', err: '' },
+    newUserForm: { username: '', password: '', role: 'user', source: 'db', err: '' },
     userGroups: [],
     newSrvGroupForm: { name: '', color: '#3b82f6', err: '' },
     newUsrGroupForm: { name: '', err: '' },
     editGroupMembers: null,   // { type:'srv'|'usr', group: {...}, draft: [...] }
+    ldapForm: {
+      enabled: false, server: '', port: 389,
+      use_ssl: false, use_tls: false, tls_verify: true,
+      bind_dn: '', bind_password: '', base_dn: '',
+      user_filter: '(sAMAccountName={username})', admin_group_dn: '',
+      loading: false, saving: false, err: '', ok: '',
+      testUsername: '', testLoading: false, testResult: '', testOk: false,
+    },
 
     /* ── Server alerts ────────────────────────────────────────────── */
     srvAlerts: [],
@@ -1846,17 +2291,21 @@ function app() {
     /* ══════════════════════════════════════════════════════════════════════
        INIT
        ══════════════════════════════════════════════════════════════════════ */
-    init() {
-      const t = localStorage.getItem('dm_token');
-      if (t) {
-        this.token  = t;
-        this.me     = localStorage.getItem('dm_user') || 'admin';
-        this.myRole = localStorage.getItem('dm_role') || 'user';
-        this.loggedIn = true;
-        this.connectWS();
-        this.loadAlertBadge();
-        this.loadServerGroups();
-      }
+    async init() {
+      // Check if a valid session cookie exists
+      try {
+        const r = await fetch('/api/auth/me', { credentials: 'include' });
+        if (r.ok) {
+          const d = await r.json();
+          this.me     = d.username;
+          this.myRole = d.role || 'user';
+          this.loggedIn = true;
+          this._startInactivityWatch();
+          this.connectWS();
+          this.loadAlertBadge();
+          this.loadServerGroups();
+        }
+      } catch {}
     },
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -1867,6 +2316,7 @@ function app() {
       try {
         const r = await fetch('/api/auth/login', {
           method: 'POST',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: this.lf.u, password: this.lf.p }),
         });
@@ -1876,13 +2326,12 @@ function app() {
           return;
         }
         const d = await r.json();
-        this.token  = d.access_token;
         this.me     = d.username;
         this.myRole = d.role || 'user';
-        localStorage.setItem('dm_token',  this.token);
-        localStorage.setItem('dm_user',   this.me);
-        localStorage.setItem('dm_role',   this.myRole);
         this.loggedIn = true;
+        this.lf.u = '';
+        this.lf.p = '';
+        this._startInactivityWatch();
         this.connectWS();
         this.loadAlertBadge();
         this.loadServerGroups();
@@ -1891,16 +2340,46 @@ function app() {
       }
     },
 
-    logout() {
-      localStorage.removeItem('dm_token');
-      localStorage.removeItem('dm_user');
-      localStorage.removeItem('dm_role');
-      this.token    = null;
+    async logout() {
+      this._clearInactivityTimer();
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      } catch {}
       this.loggedIn = false;
       this.servers  = [];
       this.selSrvId = null;
       this.selCt    = null;
       if (this.ws) { this.ws.close(); this.ws = null; }
+      this.lf.u   = '';
+      this.lf.p   = '';
+      this.lf.err = '';
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       INACTIVE SESSION TIMEOUT
+       ══════════════════════════════════════════════════════════════════════ */
+    _startInactivityWatch() {
+      const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+      events.forEach(ev => window.addEventListener(ev, () => this._resetInactivityTimer(), { passive: true }));
+      this._resetInactivityTimer();
+    },
+
+    _resetInactivityTimer() {
+      this._inactivityWarning = false;
+      clearTimeout(this._inactivityWarnTimer);
+      clearTimeout(this._inactivityTimer);
+      this._inactivityWarnTimer = setTimeout(() => {
+        this._inactivityWarning = true;
+      }, this._INACTIVITY_WARN);
+      this._inactivityTimer = setTimeout(() => {
+        this.logout();
+      }, this._INACTIVITY_LOGOUT);
+    },
+
+    _clearInactivityTimer() {
+      this._inactivityWarning = false;
+      clearTimeout(this._inactivityWarnTimer);
+      clearTimeout(this._inactivityTimer);
     },
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -1910,7 +2389,7 @@ function app() {
       if (this.ws && this.ws.readyState < 2) this.ws.close();
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       try {
-        this.ws = new WebSocket(`${proto}//${location.host}/ws/dashboard?token=${this.token}`);
+        this.ws = new WebSocket(`${proto}//${location.host}/ws/dashboard`);
       } catch { return; }
 
       this.ws.onopen    = () => { this.wsOk = true; };
@@ -2115,8 +2594,15 @@ function app() {
     /* ══════════════════════════════════════════════════════════════════════
        API HELPERS
        ══════════════════════════════════════════════════════════════════════ */
+    /* ── CSRF double-submit helper ─────────────────────────────────────────── */
+    _csrf() {
+      const c = document.cookie.split(';').map(s => s.trim())
+        .find(s => s.startsWith('csrf_token='));
+      return c ? decodeURIComponent(c.slice('csrf_token='.length)) : '';
+    },
+
     async _get(url) {
-      const r = await fetch(url, { headers: { Authorization: `Bearer ${this.token}` } });
+      const r = await fetch(url, { credentials: 'include' });
       if (r.status === 401) { this.logout(); return null; }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
@@ -2125,7 +2611,8 @@ function app() {
     async _post(url, body) {
       const r = await fetch(url, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this._csrf() },
         body: JSON.stringify(body),
       });
       if (r.status === 401) { this.logout(); return null; }
@@ -2134,15 +2621,21 @@ function app() {
     },
 
     async _del(url) {
-      const r = await fetch(url, { method: 'DELETE', headers: { Authorization: `Bearer ${this.token}` } });
+      const r = await fetch(url, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'X-CSRF-Token': this._csrf() },
+      });
+      if (r.status === 401) { this.logout(); return null; }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
+      return r.json().catch(() => ({}));
     },
 
     async _put(url, body) {
       const r = await fetch(url, {
         method: 'PUT',
-        headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this._csrf() },
         body: JSON.stringify(body),
       });
       if (r.status === 401) { this.logout(); return null; }
@@ -2540,14 +3033,14 @@ function app() {
         .replace(/</g,'&lt;')
         .replace(/>/g,'&gt;');
 
-      // Code blocks
+      // Code blocks — data-atrybut zamiast onclick z JSON (zapobiega XSS)
       h = h.replace(/```[a-z]*\n?([\s\S]*?)```/g, (_, code) => {
         const raw = code.trim()
           .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
         const safe = raw
           .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        const json = JSON.stringify(raw);
-        return `<pre><code>${safe}</code><button class="copy-btn" onclick="navigator.clipboard.writeText(${json})">📋 Kopiuj</button></pre>`;
+        const dataAttr = safe.replace(/"/g,'&quot;');
+        return `<pre><code>${safe}</code><button class="copy-btn" data-copy="${dataAttr}" onclick="navigator.clipboard.writeText(this.dataset.copy)">📋 Kopiuj</button></pre>`;
       });
 
       // Inline code
@@ -2638,7 +3131,7 @@ function app() {
     async dlPdf(analysisId) {
       try {
         const r = await fetch(`/api/analyses/${analysisId}/pdf`, {
-          headers: { Authorization: `Bearer ${this.token}` },
+          credentials: 'include',
         });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const blob = await r.blob();
@@ -2868,8 +3361,8 @@ function app() {
 
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const { cols, rows } = term;
-      const url = `${proto}//${location.host}/ws/terminal?token=${this.token}`
-        + `&agent_id=${encodeURIComponent(this.selSrvId)}`
+      const url = `${proto}//${location.host}/ws/terminal`
+        + `?agent_id=${encodeURIComponent(this.selSrvId)}`
         + `&container=${encodeURIComponent(this.selCt.name)}`
         + `&cols=${cols}&rows=${rows}`;
 
@@ -3120,6 +3613,154 @@ function app() {
       ]);
     },
 
+    async loadSessions() {
+      this.sessionsLoading = true;
+      try {
+        const d = await this._get('/api/settings/sessions');
+        if (d) this.sessions = d;
+      } catch(e) {
+        this._notify(`Błąd wczytywania sesji: ${e.message}`, 'error');
+      } finally {
+        this.sessionsLoading = false;
+      }
+    },
+
+    async revokeSession(jti) {
+      if (!confirm('Unieważnić tę sesję?')) return;
+      try {
+        await this._del(`/api/settings/sessions/${encodeURIComponent(jti)}`);
+        this._notify('Sesja unieważniona.', 'ok');
+        await this.loadSessions();
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    async loadAgentTokenInfo() {
+      try {
+        const d = await this._get('/api/settings/agent-token');
+        if (d) this.agentTokenInfo = d;
+      } catch {}
+    },
+
+    async rotateAgentToken() {
+      if (!confirm('Wygenerować nowy token agenta? Wszystkie agenty stracą połączenie do czasu aktualizacji tokenu.')) return;
+      this.agentTokenLoading = true;
+      this.agentTokenNew = '';
+      try {
+        const d = await this._post('/api/settings/agent-token/rotate', {});
+        if (d) {
+          this.agentTokenNew = d.token;
+          await this.loadAgentTokenInfo();
+        }
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      } finally {
+        this.agentTokenLoading = false;
+      }
+    },
+
+    async downloadBackup() {
+      try {
+        const r = await fetch('/api/settings/backup', {
+          credentials: 'include',
+          headers: { 'X-CSRF-Token': this._csrf() },
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const blob = await r.blob();
+        const cd   = r.headers.get('Content-Disposition') || '';
+        const name = cd.match(/filename="([^"]+)"/)?.[1] || 'dockermind-backup.sqlite';
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = name; a.click();
+        URL.revokeObjectURL(url);
+        this._notify('Backup pobrany.', 'ok');
+      } catch(e) {
+        this._notify(`Błąd pobierania backupu: ${e.message}`, 'error');
+      }
+    },
+
+    async loadAuditLogs() {
+      try {
+        const d = await this._get('/api/audit-logs?limit=200');
+        if (d) this.auditLogs = d;
+      } catch(e) {
+        this._notify(`Błąd wczytywania audit logu: ${e.message}`, 'error');
+      }
+    },
+
+    async loadLdapConfig() {
+      this.ldapForm.loading = true;
+      this.ldapForm.err = '';
+      try {
+        const d = await this._get('/api/settings/ldap');
+        if (d) {
+          this.ldapForm.enabled       = d.enabled;
+          this.ldapForm.server        = d.server;
+          this.ldapForm.port          = d.port;
+          this.ldapForm.use_ssl       = d.use_ssl;
+          this.ldapForm.use_tls       = d.use_tls;
+          this.ldapForm.tls_verify    = d.tls_verify;
+          this.ldapForm.bind_dn       = d.bind_dn;
+          this.ldapForm.bind_password = d.bind_password;  // "********" or ""
+          this.ldapForm.base_dn       = d.base_dn;
+          this.ldapForm.user_filter   = d.user_filter;
+          this.ldapForm.admin_group_dn = d.admin_group_dn;
+        }
+      } catch(e) {
+        this.ldapForm.err = `Błąd wczytywania: ${e.message}`;
+      } finally {
+        this.ldapForm.loading = false;
+      }
+    },
+
+    async saveLdapConfig() {
+      this.ldapForm.saving = true;
+      this.ldapForm.err = '';
+      this.ldapForm.ok  = '';
+      try {
+        await this._put('/api/settings/ldap', {
+          enabled:        this.ldapForm.enabled,
+          server:         this.ldapForm.server,
+          port:           this.ldapForm.port,
+          use_ssl:        this.ldapForm.use_ssl,
+          use_tls:        this.ldapForm.use_tls,
+          tls_verify:     this.ldapForm.tls_verify,
+          bind_dn:        this.ldapForm.bind_dn,
+          bind_password:  this.ldapForm.bind_password,
+          base_dn:        this.ldapForm.base_dn,
+          user_filter:    this.ldapForm.user_filter,
+          admin_group_dn: this.ldapForm.admin_group_dn,
+        });
+        this.ldapForm.ok = 'Konfiguracja LDAP zapisana.';
+        await this.loadLdapConfig();
+      } catch(e) {
+        this.ldapForm.err = e.message;
+      } finally {
+        this.ldapForm.saving = false;
+      }
+    },
+
+    async testLdapConnection() {
+      this.ldapForm.testLoading = true;
+      this.ldapForm.testResult  = '';
+      this.ldapForm.testOk      = false;
+      try {
+        const d = await this._post('/api/settings/ldap/test', {
+          test_username: this.ldapForm.testUsername,
+        });
+        if (d) {
+          this.ldapForm.testOk     = true;
+          this.ldapForm.testResult = d.message;
+        }
+      } catch(e) {
+        this.ldapForm.testOk     = false;
+        this.ldapForm.testResult = e.message;
+      } finally {
+        this.ldapForm.testLoading = false;
+      }
+    },
+
     async loadUsers() {
       this.usersLoading = true;
       try {
@@ -3139,6 +3780,7 @@ function app() {
           username: this.newUserForm.username.trim(),
           password: this.newUserForm.password,
           role: this.newUserForm.role,
+          source: this.newUserForm.source,
         });
         if (u) {
           this.users.push(u);
@@ -3228,6 +3870,57 @@ function app() {
         : [...current, username];
       try {
         const updated = await this._put(`/api/user-groups/${grp.id}/members`, { members: newMembers });
+        if (updated) {
+          const i = this.userGroups.findIndex(g => g.id === grp.id);
+          if (i >= 0) this.userGroups[i] = updated;
+        }
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    async addUsrGroupMemberFromInput(grp) {
+      const inputEl = document.getElementById(`ugrp-input-${grp.id}`);
+      if (!inputEl) return;
+      const username = inputEl.value.trim();
+      if (!username) return;
+      if (grp.members.includes(username)) {
+        this._notify(`"${username}" już jest w grupie.`, 'error');
+        return;
+      }
+      const newMembers = [...(grp.members || []), username];
+      try {
+        const updated = await this._put(`/api/user-groups/${grp.id}/members`, { members: newMembers });
+        if (updated) {
+          const i = this.userGroups.findIndex(g => g.id === grp.id);
+          if (i >= 0) this.userGroups[i] = updated;
+          inputEl.value = '';
+        }
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    async removeUsrGroupMember(grp, username) {
+      const newMembers = (grp.members || []).filter(u => u !== username);
+      try {
+        const updated = await this._put(`/api/user-groups/${grp.id}/members`, { members: newMembers });
+        if (updated) {
+          const i = this.userGroups.findIndex(g => g.id === grp.id);
+          if (i >= 0) this.userGroups[i] = updated;
+        }
+      } catch(e) {
+        this._notify(`Błąd: ${e.message}`, 'error');
+      }
+    },
+
+    async toggleUsrGroupServerGroup(grp, serverGroupId) {
+      const current = grp.server_group_ids || [];
+      const newIds = current.includes(serverGroupId)
+        ? current.filter(id => id !== serverGroupId)
+        : [...current, serverGroupId];
+      try {
+        const updated = await this._put(`/api/user-groups/${grp.id}/server-groups`, { server_group_ids: newIds });
         if (updated) {
           const i = this.userGroups.findIndex(g => g.id === grp.id);
           if (i >= 0) this.userGroups[i] = updated;

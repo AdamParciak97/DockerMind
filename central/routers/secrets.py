@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from auth import get_current_user
+from auth import get_current_user, get_current_user_info
 from models import (
     Secret,
     decrypt_secret,
@@ -96,8 +96,10 @@ async def update_secret(
 async def reveal_secret(
     secret_id: int,
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
+    if info.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Tylko administrator może odczytać wartość sekretu.")
     sec = get_secret(session, secret_id)
     if not sec:
         raise HTTPException(status_code=404, detail="Sekret nie znaleziony.")
