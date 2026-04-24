@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
 
 _CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+    "script-src 'self' 'unsafe-inline'; "
     "style-src 'self' 'unsafe-inline'; "
     "font-src 'self' data:; "
     "img-src 'self' data:; "
@@ -206,6 +206,9 @@ async def dashboard_ws(websocket: WebSocket):
 
     await websocket.accept()
     session_id = await manager.connect_dashboard(websocket, username, role, allowed_agents)
+    if session_id is None:
+        await websocket.close(code=1008, reason="Dashboard connection limit reached.")
+        return
 
     try:
         # Send current state snapshot to newly connected dashboard (filtered)
@@ -260,7 +263,9 @@ async def terminal_ws(websocket: WebSocket):
 
     await websocket.accept()
     session_id = str(uuid.uuid4())
-    await manager.register_terminal(session_id, websocket)
+    if not await manager.register_terminal(session_id, websocket):
+        await websocket.close(code=1008, reason="Terminal session limit reached.")
+        return
 
     try:
         await manager.send_to_agent(agent_id, json.dumps({
@@ -282,11 +287,16 @@ async def terminal_ws(websocket: WebSocket):
                     "data": msg.get("data", ""),
                 }))
             elif t == "resize":
+                try:
+                    r_cols = max(10, min(500, int(msg.get("cols", 80))))
+                    r_rows = max(5,  min(200, int(msg.get("rows", 24))))
+                except (ValueError, TypeError):
+                    r_cols, r_rows = 80, 24
                 await manager.send_to_agent(agent_id, json.dumps({
                     "type": "exec_resize",
                     "session_id": session_id,
-                    "cols": msg.get("cols", 80),
-                    "rows": msg.get("rows", 24),
+                    "cols": r_cols,
+                    "rows": r_rows,
                 }))
 
     except WebSocketDisconnect:

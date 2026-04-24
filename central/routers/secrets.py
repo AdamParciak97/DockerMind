@@ -9,10 +9,13 @@ DELETE /api/secrets/{id}         delete
 """
 
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
+
+import logging
 
 from auth import get_current_user, get_current_user_info
 from models import (
@@ -23,7 +26,10 @@ from models import (
     get_secret,
     get_secrets,
     get_session,
+    log_audit,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["secrets"])
 
@@ -38,16 +44,22 @@ class SecretCreate(BaseModel):
 
 class SecretUpdate(BaseModel):
     value: str = ""
-    description: str = ""
+    description: Optional[str] = None
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+def _require_admin(info: dict) -> None:
+    if info.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Tylko administrator ma dostęp do sekretów.")
+
+
 @router.get("/api/secrets")
 async def list_secrets(
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
+    _require_admin(info)
     return [_secret_meta(s) for s in get_secrets(session)]
 
 
@@ -55,8 +67,9 @@ async def list_secrets(
 async def create_secret(
     body: SecretCreate,
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
+    _require_admin(info)
     if not body.name.strip():
         raise HTTPException(status_code=400, detail="Nazwa sekretu nie może być pusta.")
     sec = Secret(
@@ -68,8 +81,10 @@ async def create_secret(
     try:
         session.commit()
     except Exception:
-        raise HTTPException(status_code=409, detail=f"Sekret '{body.name}' już istnieje.")
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Sekret o podanej nazwie już istnieje.")
     session.refresh(sec)
+    log_audit(session, "secret_created", username=info["username"], detail=f"name={sec.name}")
     return _secret_meta(sec)
 
 
@@ -78,17 +93,20 @@ async def update_secret(
     secret_id: int,
     body: SecretUpdate,
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
+    _require_admin(info)
     sec = get_secret(session, secret_id)
     if not sec:
         raise HTTPException(status_code=404, detail="Sekret nie znaleziony.")
     if body.value:
-        sec.encrypted_value = encrypt_secret(body.value)
-    sec.description = body.description
+        sec.encrypted_value = encrypt_secret(body.value.strip())
+    if body.description is not None:
+        sec.description = body.description
     sec.updated_at = datetime.now(timezone.utc)
     session.add(sec)
     session.commit()
+    log_audit(session, "secret_updated", username=info["username"], detail=f"id={secret_id}")
     return _secret_meta(sec)
 
 
@@ -98,15 +116,16 @@ async def reveal_secret(
     session: Session = Depends(get_session),
     info: dict = Depends(get_current_user_info),
 ):
-    if info.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Tylko administrator może odczytać wartość sekretu.")
+    _require_admin(info)
     sec = get_secret(session, secret_id)
     if not sec:
         raise HTTPException(status_code=404, detail="Sekret nie znaleziony.")
     try:
         value = decrypt_secret(sec.encrypted_value)
     except Exception:
+        logger.error("Decryption failed for secret id=%d", secret_id)
         raise HTTPException(status_code=500, detail="Błąd deszyfrowania sekretu.")
+    log_audit(session, "secret_revealed", username=info["username"], detail=f"id={secret_id}, name={sec.name}")
     return {"id": sec.id, "name": sec.name, "value": value}
 
 
@@ -114,10 +133,15 @@ async def reveal_secret(
 async def remove_secret(
     secret_id: int,
     session: Session = Depends(get_session),
-    user: str = Depends(get_current_user),
+    info: dict = Depends(get_current_user_info),
 ):
+    _require_admin(info)
+    sec = get_secret(session, secret_id)
+    if not sec:
+        raise HTTPException(status_code=404, detail="Sekret nie znaleziony.")
     if not delete_secret(session, secret_id):
         raise HTTPException(status_code=404, detail="Sekret nie znaleziony.")
+    log_audit(session, "secret_deleted", username=info["username"], detail=f"id={secret_id}")
     return {"deleted": secret_id}
 
 

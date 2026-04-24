@@ -15,8 +15,13 @@ echo "Exporting images..."
 docker save dockermind-web:1.2   -o dockermind-web.tar
 docker save dockermind-agent:1.2 -o dockermind-agent.tar
 docker save dockermind-nginx:1.2 -o nginx.tar
+chmod 600 dockermind-web.tar dockermind-agent.tar nginx.tar
 
 # Create package structure
+if [ -e offline-package ] && [ ! -d offline-package ]; then
+    echo "ERROR: offline-package exists but is not a directory. Aborting." >&2
+    exit 1
+fi
 rm -rf offline-package
 mkdir -p offline-package/central/nginx
 mkdir -p offline-package/agent
@@ -43,12 +48,14 @@ docker load -i dockermind-web.tar
 docker load -i nginx.tar
 
 if [ ! -f .env ]; then
-    cp .env.example .env
+    install -m 600 .env.example .env
+    # Pre-fill random secrets so they are not displayed in the terminal
+    sed -i "s|^CT_SECRET_KEY=.*|CT_SECRET_KEY=$(openssl rand -hex 32)|" .env
+    sed -i "s|^AGENT_SECRET_TOKEN=.*|AGENT_SECRET_TOKEN=$(openssl rand -hex 32)|" .env
     echo ""
     echo "WAŻNE: Uzupełnij plik .env przed uruchomieniem:"
-    echo "  CT_PASSWORD=silne-haslo"
-    echo "  CT_SECRET_KEY=$(openssl rand -hex 32 2>/dev/null || echo 'wygeneruj-losowy-klucz-32-znaki')"
-    echo "  AGENT_SECRET_TOKEN=$(openssl rand -hex 32 2>/dev/null || echo 'wygeneruj-losowy-token-32-znaki')"
+    echo "  CT_PASSWORD=silne-haslo   ← zmień obowiązkowo"
+    echo "  CT_SECRET_KEY i AGENT_SECRET_TOKEN zostały wygenerowane automatycznie."
     echo ""
     read -p "Naciśnij ENTER po edycji .env..."
 fi
@@ -72,7 +79,7 @@ echo "=== Instalacja DockerMind Agent (v1.2) ==="
 docker load -i dockermind-agent.tar
 
 if [ ! -f .env ]; then
-    cp .env.example .env
+    install -m 600 .env.example .env
     echo ""
     echo "Uzupełnij .env:"
     echo "  CENTRAL_HOST=IP_serwera_central"

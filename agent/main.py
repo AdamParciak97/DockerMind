@@ -11,11 +11,17 @@ import json
 import logging
 import os
 import pty
+import re
 import socket
 import struct
+import sys
 import termios
 import time
 from typing import Optional
+
+_CONTAINER_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.\-]*$')
+_ALLOWED_ACTIONS = {"start", "stop", "restart"}
+_MAX_EXEC_SESSIONS = 10
 
 import websockets
 from dotenv import load_dotenv
@@ -161,7 +167,7 @@ def _set_pty_size(fd: int, cols: int, rows: int) -> None:
 
 async def _read_pty_output(session_id: str, master_fd: int, ws) -> None:
     """Read from PTY master and forward to central as base64."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         while True:
             try:
@@ -187,12 +193,20 @@ async def _read_pty_output(session_id: str, master_fd: int, ws) -> None:
 
 
 async def handle_exec_start(ws, session_id: str, container: str, cols: int, rows: int) -> None:
+    if not _CONTAINER_RE.match(container):
+        logger.warning("exec_start rejected — invalid container name: %r", container[:64])
+        await send_json(ws, {"type": "exec_ended", "session_id": session_id})
+        return
+    if len(_exec_sessions) >= _MAX_EXEC_SESSIONS:
+        logger.warning("exec_start rejected — session limit (%d) reached", _MAX_EXEC_SESSIONS)
+        await send_json(ws, {"type": "exec_ended", "session_id": session_id})
+        return
     master_fd, slave_fd = pty.openpty()
     _set_pty_size(slave_fd, cols, rows)
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "docker", "exec", "-it", container, "/bin/sh",
+            "docker", "exec", "-it", "--", container, "/bin/sh",
             stdin=slave_fd,
             stdout=slave_fd,
             stderr=slave_fd,
@@ -218,7 +232,7 @@ async def handle_exec_input(session_id: str, data_b64: str) -> None:
         return
     try:
         data = base64.b64decode(data_b64)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, os.write, sess["master_fd"], data)
     except OSError:
         pass
@@ -285,7 +299,8 @@ async def handle_request(ws, message: dict) -> None:
                 c = client.containers.get(container_name)
                 data = collector.collect_container_data(c, with_stats=True)
             except Exception as e:
-                data = {"error": str(e)}
+                logger.error("trigger_analysis collect failed for %s: %s", container_name, e)
+                data = {"error": "Błąd zbierania danych kontenera."}
             await send_json(ws, {
                 "type": "response",
                 "request_id": request_id,
@@ -296,6 +311,10 @@ async def handle_request(ws, message: dict) -> None:
         elif action == "container_action":
             container = params.get("container", "")
             act = params.get("action", "")
+            if not _CONTAINER_RE.match(container):
+                raise ValueError("Nieprawidłowa nazwa kontenera.")
+            if act not in _ALLOWED_ACTIONS:
+                raise ValueError(f"Niedozwolona akcja: {act!r}")
             result = collector.container_action(container, act)
             await send_json(ws, {
                 "type": "response",
@@ -307,6 +326,8 @@ async def handle_request(ws, message: dict) -> None:
         elif action == "save_compose":
             container = params.get("container", "")
             content = params.get("content", "")
+            if not _CONTAINER_RE.match(container):
+                raise ValueError("Nieprawidłowa nazwa kontenera.")
             result = collector.save_compose_file(container, content)
             await send_json(ws, {
                 "type": "response",
@@ -330,12 +351,19 @@ async def handle_request(ws, message: dict) -> None:
                 "message": f"Nieznana akcja: {action}",
             })
 
+    except (ValueError, TypeError) as e:
+        logger.warning("Invalid request %s: %s", action, e)
+        await send_json(ws, {
+            "type": "error",
+            "request_id": request_id,
+            "message": str(e),
+        })
     except Exception as e:
         logger.error("Error handling request %s: %s", action, e)
         await send_json(ws, {
             "type": "error",
             "request_id": request_id,
-            "message": str(e),
+            "message": "Wewnętrzny błąd agenta.",
         })
 
 
@@ -345,7 +373,7 @@ async def stream_loop(ws) -> None:
     """Periodically collect and send full data payload."""
     while True:
         try:
-            payload = await asyncio.get_event_loop().run_in_executor(
+            payload = await asyncio.get_running_loop().run_in_executor(
                 None, build_data_payload
             )
             await send_json(ws, payload)
@@ -410,7 +438,7 @@ async def connect_and_run() -> None:
         open_timeout=30,
     ) as ws:
         logger.info("Connected. Sending registration...")
-        reg = await asyncio.get_event_loop().run_in_executor(
+        reg = await asyncio.get_running_loop().run_in_executor(
             None, build_registration
         )
         await send_json(ws, reg)
@@ -434,8 +462,8 @@ async def connect_and_run() -> None:
 
 async def main() -> None:
     if not AGENT_TOKEN:
-        logger.error("AGENT_TOKEN is not set. Edit .env and restart.")
-        return
+        logger.critical("AGENT_TOKEN is not set. Edit .env and restart.")
+        sys.exit(1)
 
     backoff = BACKOFF_MIN
     while True:

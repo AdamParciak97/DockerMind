@@ -2,12 +2,13 @@
 ai/analyzer.py — AI analysis engine for DockerMind.
 
 Uses OpenAI-compatible client pointed at ai.mgmt.pl/llama3/v1.
-Self-signed certificate → verify=False via custom httpx.Client.
+TLS verification controlled by AI_VERIFY_SSL / AI_CA_CERT env vars.
 Streams tokens to dashboards via WebSocket broadcast.
 Parses risk level from response.
 Saves completed Analysis to DB.
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -26,15 +27,28 @@ logger = logging.getLogger(__name__)
 
 _client: OpenAI | None = None
 
+# Limit concurrent AI analyses to avoid overloading the AI server
+_ANALYSIS_SEMAPHORE: asyncio.Semaphore | None = None
+
+
+def _get_semaphore() -> asyncio.Semaphore:
+    global _ANALYSIS_SEMAPHORE
+    if _ANALYSIS_SEMAPHORE is None:
+        _ANALYSIS_SEMAPHORE = asyncio.Semaphore(3)
+    return _ANALYSIS_SEMAPHORE
+
 
 def get_client() -> OpenAI:
     global _client
     if _client is None:
+        ssl_verify: bool | str = settings.AI_CA_CERT if settings.AI_CA_CERT else settings.AI_VERIFY_SSL
+        if not ssl_verify:
+            logger.warning("AI_VERIFY_SSL=false — TLS certificate verification is disabled")
         _client = OpenAI(
             base_url=settings.AI_BASE_URL,
             api_key="none",
             http_client=httpx.Client(
-                verify=False,       # self-signed certificate on ai.mgmt.pl
+                verify=ssl_verify,
                 timeout=httpx.Timeout(
                     connect=10.0,
                     read=settings.AI_TIMEOUT,
@@ -157,67 +171,66 @@ async def analyze_container(
     full_response = ""
     risk_level = "NIEZNANY"
 
-    try:
-        # Run blocking OpenAI call in thread executor to avoid blocking event loop
-        import asyncio
+    async with _get_semaphore():
+        try:
+            # Run blocking OpenAI call in thread executor to avoid blocking event loop
+            def _stream_sync():
+                return client.chat.completions.create(
+                    model=settings.AI_MODEL,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user",   "content": prompt},
+                    ],
+                    stream=True,
+                    temperature=0.3,
+                    max_tokens=2048,
+                )
 
-        def _stream_sync():
-            return client.chat.completions.create(
-                model=settings.AI_MODEL,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user",   "content": prompt},
-                ],
-                stream=True,
-                temperature=0.3,
-                max_tokens=2048,
-            )
+            loop = asyncio.get_running_loop()
+            stream = await loop.run_in_executor(None, _stream_sync)
 
-        loop = asyncio.get_event_loop()
-        stream = await loop.run_in_executor(None, _stream_sync)
+            # Iterate stream synchronously in executor, broadcast each chunk
+            async def _consume():
+                nonlocal full_response, risk_level
+                buffer = ""
 
-        # Iterate stream synchronously in executor, broadcast each chunk
-        async def _consume():
-            nonlocal full_response, risk_level
-            buffer = ""
+                def _iter():
+                    chunks = []
+                    for chunk in stream:
+                        delta = chunk.choices[0].delta.content or ""
+                        chunks.append(delta)
+                    return chunks
 
-            def _iter():
-                chunks = []
-                for chunk in stream:
-                    delta = chunk.choices[0].delta.content or ""
-                    chunks.append(delta)
-                return chunks
+                chunks = await loop.run_in_executor(None, _iter)
 
-            chunks = await loop.run_in_executor(None, _iter)
+                for delta in chunks:
+                    if not delta:
+                        continue
+                    full_response += delta
+                    buffer += delta
 
-            for delta in chunks:
-                if not delta:
-                    continue
-                full_response += delta
-                buffer += delta
+                    # Broadcast every token (or small batch) to dashboards
+                    await broadcast_fn("analysis_token", {
+                        "agent_id": agent_id,
+                        "container_name": container_name,
+                        "token": delta,
+                    })
 
-                # Broadcast every token (or small batch) to dashboards
-                await broadcast_fn("analysis_token", {
-                    "agent_id": agent_id,
-                    "container_name": container_name,
-                    "token": delta,
-                })
+                    # Parse risk level as soon as we see it in the stream
+                    if risk_level == "NIEZNANY":
+                        risk_level = _extract_risk(full_response)
 
-                # Parse risk level as soon as we see it in the stream
-                if risk_level == "NIEZNANY":
-                    risk_level = _extract_risk(full_response)
+            await _consume()
 
-        await _consume()
-
-    except Exception as e:
-        error_msg = f"\n\n❌ Błąd analizy AI: {e}"
-        full_response += error_msg
-        logger.error("AI streaming error for %s/%s: %s", agent_id, container_name, e)
-        await broadcast_fn("analysis_token", {
-            "agent_id": agent_id,
-            "container_name": container_name,
-            "token": error_msg,
-        })
+        except Exception as e:
+            logger.error("AI streaming error for %s/%s: %s", agent_id, container_name, e)
+            error_msg = "\n\n❌ Błąd analizy AI. Sprawdź logi serwera."
+            full_response += error_msg
+            await broadcast_fn("analysis_token", {
+                "agent_id": agent_id,
+                "container_name": container_name,
+                "token": error_msg,
+            })
 
     # Final risk parse on complete response
     if risk_level == "NIEZNANY":

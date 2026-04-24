@@ -10,8 +10,12 @@ GET  /api/health
 """
 
 import json
+import logging
+import re as _re
 import time
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
@@ -22,6 +26,16 @@ from models import get_allowed_agent_ids, get_session, log_audit
 from websocket_manager import manager
 
 router = APIRouter(tags=["servers"])
+
+_AGENT_ID_RE = _re.compile(r'^[a-z0-9][a-z0-9\-]*$')
+_CONTAINER_NAME_RE = _re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.\-]*$')
+
+
+def _validate_ids(agent_id: str, container_name: str = "") -> None:
+    if not _AGENT_ID_RE.match(agent_id):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy identyfikator agenta.")
+    if container_name and not _CONTAINER_NAME_RE.match(container_name):
+        raise HTTPException(status_code=400, detail="Nieprawidłowa nazwa kontenera.")
 
 
 def _check_agent_access(agent_id: str, info: dict, session: Session) -> None:
@@ -81,10 +95,11 @@ async def get_server(
     session: Session = Depends(get_session),
     info: dict = Depends(get_current_user_info),
 ):
+    _validate_ids(agent_id)
     _check_agent_access(agent_id, info, session)
     data = manager.get_agent(agent_id)
     if data is None:
-        raise HTTPException(status_code=404, detail=f"Serwer '{agent_id}' nie znaleziony.")
+        raise HTTPException(status_code=404, detail="Serwer nie znaleziony.")
     return data
 
 
@@ -96,10 +111,11 @@ async def list_containers(
     session: Session = Depends(get_session),
     info: dict = Depends(get_current_user_info),
 ):
+    _validate_ids(agent_id)
     _check_agent_access(agent_id, info, session)
     containers = manager.get_agent_containers(agent_id)
     if containers is None:
-        raise HTTPException(status_code=404, detail=f"Serwer '{agent_id}' nie znaleziony.")
+        raise HTTPException(status_code=404, detail="Serwer nie znaleziony.")
     return [
         {k: v for k, v in c.items() if k not in ("logs", "compose")}
         for c in containers
@@ -114,6 +130,7 @@ async def get_logs(
     session: Session = Depends(get_session),
     info: dict = Depends(get_current_user_info),
 ):
+    _validate_ids(agent_id, container_name)
     _check_agent_access(agent_id, info, session)
     _require_online(agent_id)
     try:
@@ -122,7 +139,8 @@ async def get_logs(
             params={"container": container_name, "lines": lines},
         )
     except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        logger.warning("get_logs failed for %s/%s: %s", agent_id, container_name, e)
+        raise HTTPException(status_code=503, detail="Agent nie odpowiedział. Spróbuj ponownie.")
     return {"container": container_name, "lines": lines, "logs": result}
 
 
@@ -133,6 +151,7 @@ async def get_compose(
     session: Session = Depends(get_session),
     info: dict = Depends(get_current_user_info),
 ):
+    _validate_ids(agent_id, container_name)
     _check_agent_access(agent_id, info, session)
     _require_online(agent_id)
     try:
@@ -141,7 +160,8 @@ async def get_compose(
             params={"container": container_name},
         )
     except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        logger.warning("get_compose failed for %s/%s: %s", agent_id, container_name, e)
+        raise HTTPException(status_code=503, detail="Agent nie odpowiedział. Spróbuj ponownie.")
     return {"container": container_name, "compose": result}
 
 
@@ -160,6 +180,7 @@ async def save_compose(
 ):
     if info["role"] != "admin":
         raise HTTPException(status_code=403, detail="Edycja pliku compose wymaga roli administrator.")
+    _validate_ids(agent_id, container_name)
     _check_agent_access(agent_id, info, session)
     _require_online(agent_id)
     try:
@@ -168,7 +189,8 @@ async def save_compose(
             params={"container": container_name, "content": body.content},
         )
     except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        logger.warning("save_compose failed for %s/%s: %s", agent_id, container_name, e)
+        raise HTTPException(status_code=503, detail="Agent nie odpowiedział. Spróbuj ponownie.")
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("error", "Błąd zapisu pliku."))
     log_audit(session, "compose_save", username=info["username"],
@@ -191,6 +213,7 @@ async def container_action(
 ):
     if info["role"] != "admin":
         raise HTTPException(status_code=403, detail="Akcje na kontenerach wymagają roli administrator.")
+    _validate_ids(agent_id, container_name)
     _check_agent_access(agent_id, info, session)
     _require_online(agent_id)
     if body.action not in ("start", "stop", "restart"):
@@ -201,7 +224,8 @@ async def container_action(
             params={"container": container_name, "action": body.action},
         )
     except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        logger.warning("container_action failed for %s/%s: %s", agent_id, container_name, e)
+        raise HTTPException(status_code=503, detail="Agent nie odpowiedział. Spróbuj ponownie.")
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("error", "Błąd wykonania akcji."))
     log_audit(session, "container_action", username=info["username"],
@@ -215,5 +239,5 @@ def _require_online(agent_id: str) -> None:
     if not manager.is_agent_online(agent_id):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Agent '{agent_id}' jest offline.",
+            detail="Agent jest offline.",
         )

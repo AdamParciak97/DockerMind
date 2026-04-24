@@ -27,7 +27,7 @@ _SCOPE     = "https://graph.microsoft.com/.default"
 async def _get_token() -> str:
     """Obtain an OAuth2 access token via client credentials flow."""
     url = _TOKEN_URL.format(tenant_id=settings.EXCHANGE_TENANT_ID)
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, verify=True) as client:
         resp = await client.post(url, data={
             "grant_type":    "client_credentials",
             "client_id":     settings.EXCHANGE_CLIENT_ID,
@@ -35,7 +35,12 @@ async def _get_token() -> str:
             "scope":         _SCOPE,
         })
         resp.raise_for_status()
-        return resp.json()["access_token"]
+        token_data = resp.json()
+        if "access_token" not in token_data:
+            raise ValueError(
+                f"OAuth response missing 'access_token' (keys: {list(token_data.keys())!r})"
+            )
+        return token_data["access_token"]
 
 
 async def send_via_exchange(
@@ -83,7 +88,7 @@ async def send_via_exchange(
         }]
 
     url = _SEND_URL.format(sender=settings.EXCHANGE_SENDER)
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=60, verify=True) as client:
         resp = await client.post(
             url,
             json={"message": message, "saveToSentItems": True},

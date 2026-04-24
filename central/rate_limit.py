@@ -27,6 +27,12 @@ _USER_MAX: int    = 15
 
 _failed_user: dict[str, list[float]] = defaultdict(list)
 
+# ── Memory protection — cap dictionary sizes to prevent DoS ──────────────────
+_MAX_TRACKED_IPS: int   = 10_000
+_MAX_TRACKED_USERS: int = 10_000
+_IP_LIST_MAX: int       = _IP_MAX * 2      # per-IP list cap
+_USER_LIST_MAX: int     = _USER_MAX * 2    # per-user list cap
+
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
@@ -57,9 +63,12 @@ def check_username_lockout(username: str) -> None:
 
 def record_failed_attempt(request: Request, username: str = "") -> None:
     """Call after a failed authentication attempt."""
-    _failed_ip[_client_ip(request)].append(time.monotonic())
+    ip = _client_ip(request)
+    if len(_failed_ip) < _MAX_TRACKED_IPS and len(_failed_ip[ip]) < _IP_LIST_MAX:
+        _failed_ip[ip].append(time.monotonic())
     if username and username != settings.CT_USERNAME:
-        _failed_user[username].append(time.monotonic())
+        if len(_failed_user) < _MAX_TRACKED_USERS and len(_failed_user[username]) < _USER_LIST_MAX:
+            _failed_user[username].append(time.monotonic())
 
 
 def clear_attempts(request: Request, username: str = "") -> None:
@@ -69,8 +78,21 @@ def clear_attempts(request: Request, username: str = "") -> None:
         _failed_user.pop(username, None)
 
 
+def purge_expired() -> None:
+    """Remove stale entries — call periodically to prevent memory growth."""
+    now = time.monotonic()
+    for ip in list(_failed_ip.keys()):
+        _failed_ip[ip] = [t for t in _failed_ip[ip] if now - t < _IP_WINDOW]
+        if not _failed_ip[ip]:
+            del _failed_ip[ip]
+    for user in list(_failed_user.keys()):
+        _failed_user[user] = [t for t in _failed_user[user] if now - t < _USER_WINDOW]
+        if not _failed_user[user]:
+            del _failed_user[user]
+
+
 def _client_ip(request: Request) -> str:
-    forwarded_for = request.headers.get("X-Forwarded-For", "")
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
+    # Use request.client.host as the authoritative IP (set by trusted reverse proxy).
+    # X-Forwarded-For is logged for reference only — never trusted for rate limiting
+    # because it can be spoofed by the client.
     return request.client.host if request.client else "unknown"

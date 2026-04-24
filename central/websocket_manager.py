@@ -57,6 +57,12 @@ class DashboardSession:
         self.allowed_agents = allowed_agents
 
 
+_MAX_AGENTS     = 200
+_MAX_DASHBOARDS = 500
+_MAX_TERMINALS  = 100
+_MAX_AGENT_MSG_BYTES = 32 * 1024 * 1024  # 32 MB per agent message
+
+
 class WebSocketManager:
     def __init__(self):
         # agent_id → AgentConnection
@@ -101,6 +107,10 @@ class WebSocketManager:
         conn = AgentConnection(ws=ws, agent_id=agent_id, info=info)
 
         async with self._lock:
+            if agent_id not in self._agents and len(self._agents) >= _MAX_AGENTS:
+                logger.warning("Agent connection limit (%d) reached, rejecting %s", _MAX_AGENTS, agent_id)
+                await ws.close(code=1008, reason="Connection limit reached")
+                return agent_id
             old = self._agents.get(agent_id)
             if old:
                 # Stale entry from a previous connection — resolve pending futures
@@ -133,6 +143,11 @@ class WebSocketManager:
 
     async def handle_agent_message(self, agent_id: str, raw: str) -> None:
         """Process any message arriving from an agent WebSocket."""
+        if len(raw) > _MAX_AGENT_MSG_BYTES:
+            logger.warning(
+                "Agent %s sent oversized message (%d bytes), ignoring.", agent_id, len(raw)
+            )
+            return
         try:
             msg = json.loads(raw)
         except json.JSONDecodeError:
@@ -195,7 +210,7 @@ class WebSocketManager:
 
     async def _bg_process(self, agent_id: str, containers: list[dict]) -> None:
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             new_alerts = await loop.run_in_executor(
                 None, _process_data_sync, agent_id, containers
             )
@@ -231,7 +246,7 @@ class WebSocketManager:
             raise RuntimeError(f"Agent '{agent_id}' nie jest podłączony.")
 
         request_id = str(uuid.uuid4())
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         fut: asyncio.Future = loop.create_future()
 
         conn.pending_requests[request_id] = fut
@@ -259,9 +274,14 @@ class WebSocketManager:
 
     # ── Terminal sessions ──────────────────────────────────────────────────────
 
-    async def register_terminal(self, session_id: str, ws: WebSocket) -> None:
+    async def register_terminal(self, session_id: str, ws: WebSocket) -> bool:
+        """Returns False if the terminal limit is reached."""
         async with self._lock:
+            if len(self._terminals) >= _MAX_TERMINALS:
+                logger.warning("Terminal session limit (%d) reached, rejecting %s", _MAX_TERMINALS, session_id)
+                return False
             self._terminals[session_id] = ws
+        return True
 
     async def unregister_terminal(self, session_id: str) -> None:
         async with self._lock:
@@ -284,7 +304,8 @@ class WebSocketManager:
             try:
                 await ws.send_text(json.dumps({"type": "output", "data": data}))
             except Exception:
-                pass
+                async with self._lock:
+                    self._terminals.pop(session_id, None)
 
     async def _route_terminal_ended(self, session_id: str) -> None:
         async with self._lock:
@@ -294,16 +315,23 @@ class WebSocketManager:
                 await ws.send_text(json.dumps({"type": "ended"}))
             except Exception:
                 pass
+            finally:
+                async with self._lock:
+                    self._terminals.pop(session_id, None)
 
     # ── Dashboard connections ──────────────────────────────────────────────────
 
-    async def connect_dashboard(self, ws: WebSocket, username: str, role: str, allowed_agents) -> str:
+    async def connect_dashboard(self, ws: WebSocket, username: str, role: str, allowed_agents) -> Optional[str]:
         """
         Register a dashboard session.
         allowed_agents: None = see all, set[str] = restricted to these agent_ids.
+        Returns None if the connection limit is reached.
         """
         session_id = str(uuid.uuid4())
         async with self._lock:
+            if len(self._dashboards) >= _MAX_DASHBOARDS:
+                logger.warning("Dashboard connection limit (%d) reached, rejecting %s", _MAX_DASHBOARDS, username)
+                return None
             self._dashboards[session_id] = DashboardSession(
                 ws=ws, username=username, role=role, allowed_agents=allowed_agents
             )
@@ -429,7 +457,7 @@ class WebSocketManager:
 
     async def _cleanup_metrics(self) -> None:
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, _cleanup_metrics_sync)
             await loop.run_in_executor(None, _cleanup_revoked_tokens_sync)
         except Exception as e:

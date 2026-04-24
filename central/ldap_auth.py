@@ -86,6 +86,12 @@ def _build_server(cfg: dict):
     from ldap3 import Server, Tls, ALL
     tls = None
     if cfg["use_ssl"] or cfg["use_tls"]:
+        if not cfg["tls_verify"]:
+            logger.warning(
+                "LDAP TLS certificate verification is DISABLED for %s — "
+                "set tls_verify=true in production.",
+                cfg["server"],
+            )
         validate = ssl.CERT_REQUIRED if cfg["tls_verify"] else ssl.CERT_NONE
         tls = Tls(validate=validate)
     return Server(
@@ -106,7 +112,7 @@ def ldap_authenticate(username: str, password: str) -> Optional[str]:
     if cfg is None:
         return None
 
-    if not password:
+    if not password or not password.strip():
         return None
 
     try:
@@ -159,7 +165,8 @@ def ldap_authenticate(username: str, password: str) -> Optional[str]:
         return role
 
     except Exception as exc:
-        logger.info("LDAP auth failed for '%s': %s", username, exc)
+        logger.warning("LDAP auth failed for '%s': %s", username, type(exc).__name__)
+        logger.debug("LDAP auth exception detail: %s", exc)
         return None
 
 
@@ -204,4 +211,7 @@ def test_ldap_service_bind(
             return {"ok": True, "message": f"Połączenie udane, ale użytkownik '{test_username}' nie znaleziony w {base_dn}."}
 
     except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        logger.warning("LDAP test connection to %s failed: %s", server, exc)
+        exc_type = type(exc).__name__
+        # Return only the exception class name to avoid leaking credentials in messages
+        return {"ok": False, "error": f"Błąd połączenia LDAP ({exc_type}). Sprawdź logi serwera."}

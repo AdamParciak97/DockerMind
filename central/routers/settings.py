@@ -108,6 +108,7 @@ async def change_password(
     if err:
         raise HTTPException(status_code=400, detail=err)
     update_db_user_password(session, user, hash_password(body.new_password))
+    log_audit(session, "password_changed", username=user)
     return {"ok": True}
 
 
@@ -127,7 +128,7 @@ async def list_users(
 ):
     if not _is_admin(info):
         raise HTTPException(status_code=403, detail="Brak uprawnień.")
-    env_admin = {"username": settings.CT_USERNAME, "role": "admin", "id": 0,
+    env_admin = {"username": "admin (env)", "role": "admin", "id": 0,
                  "created_at": None, "source": "env"}
     db_users = [
         {"username": u.username, "role": u.role, "id": u.id,
@@ -147,6 +148,11 @@ async def create_user(
         raise HTTPException(status_code=403, detail="Brak uprawnień.")
     if not body.username.strip():
         raise HTTPException(status_code=400, detail="Nazwa użytkownika jest wymagana.")
+    if not _USERNAME_RE.match(body.username):
+        raise HTTPException(
+            status_code=400,
+            detail="Nazwa użytkownika może zawierać tylko litery, cyfry oraz znaki: . _ @ -",
+        )
     source = body.source if body.source in ("db", "ldap") else "db"
     if source == "db":
         err = validate_password_strength(body.password)
@@ -161,6 +167,8 @@ async def create_user(
         raise HTTPException(status_code=409, detail="Taki użytkownik już istnieje.")
     role = body.role if body.role in ("admin", "user") else "user"
     u = create_db_user(session, body.username, hashed, role, source=source)
+    log_audit(session, "user_created", username=info["username"],
+              detail=f"new_user={u.username} role={u.role}")
     return {"username": u.username, "role": u.role, "id": u.id,
             "created_at": u.created_at.isoformat(), "source": u.source}
 
@@ -201,14 +209,25 @@ async def delete_user(
         raise HTTPException(status_code=400, detail="Nie możesz usunąć własnego konta.")
     if not delete_db_user(session, username):
         raise HTTPException(status_code=404, detail="Użytkownik nie znaleziony.")
+    log_audit(session, "user_deleted", username=info["username"], detail=f"deleted={username}")
     return {"deleted": username}
 
 
 # ── Server groups ─────────────────────────────────────────────────────────────
 
+import re as _re
+
+_COLOR_RE    = _re.compile(r'^#[0-9a-fA-F]{6}$')
+_USERNAME_RE = _re.compile(r'^[a-zA-Z0-9._@\-]{1,64}$')
+
+
 class ServerGroupCreate(BaseModel):
     name: str
     color: str = "#3b82f6"
+
+    def validate_color(self) -> None:
+        if not _COLOR_RE.match(self.color):
+            raise ValueError("Nieprawidłowy format koloru (wymagany #rrggbb).")
 
 
 class MembersUpdate(BaseModel):
@@ -220,6 +239,8 @@ async def list_server_groups(
     session: Session = Depends(get_session),
     info: dict = Depends(get_current_user_info),
 ):
+    if not _is_admin(info):
+        raise HTTPException(status_code=403, detail="Brak uprawnień.")
     return get_server_groups(session)
 
 
@@ -233,10 +254,14 @@ async def create_srv_group(
         raise HTTPException(status_code=403, detail="Brak uprawnień.")
     if not body.name.strip():
         raise HTTPException(status_code=400, detail="Nazwa grupy jest wymagana.")
+    if not _COLOR_RE.match(body.color):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy format koloru (wymagany #rrggbb).")
     try:
-        return create_server_group(session, body.name.strip(), body.color)
+        grp = create_server_group(session, body.name.strip(), body.color)
     except Exception:
-        raise HTTPException(status_code=409, detail=f"Grupa '{body.name}' już istnieje.")
+        raise HTTPException(status_code=409, detail="Grupa o podanej nazwie już istnieje.")
+    log_audit(session, "server_group_created", username=info["username"], detail=f"name={grp['name']}")
+    return grp
 
 
 @router.delete("/api/server-groups/{group_id}")
@@ -249,6 +274,7 @@ async def delete_srv_group(
         raise HTTPException(status_code=403, detail="Brak uprawnień.")
     if not delete_server_group(session, group_id):
         raise HTTPException(status_code=404, detail="Grupa nie znaleziona.")
+    log_audit(session, "server_group_deleted", username=info["username"], detail=f"id={group_id}")
     return {"deleted": group_id}
 
 
@@ -263,6 +289,8 @@ async def update_srv_group_members(
         raise HTTPException(status_code=403, detail="Brak uprawnień.")
     if not set_server_group_members(session, group_id, body.members):
         raise HTTPException(status_code=404, detail="Grupa nie znaleziona.")
+    log_audit(session, "server_group_members_updated", username=info["username"],
+              detail=f"id={group_id}")
     groups = get_server_groups(session)
     return next((g for g in groups if g["id"] == group_id), {})
 
@@ -278,6 +306,8 @@ async def list_user_groups(
     session: Session = Depends(get_session),
     info: dict = Depends(get_current_user_info),
 ):
+    if not _is_admin(info):
+        raise HTTPException(status_code=403, detail="Brak uprawnień.")
     return get_user_groups(session)
 
 
@@ -292,9 +322,11 @@ async def create_usr_group(
     if not body.name.strip():
         raise HTTPException(status_code=400, detail="Nazwa grupy jest wymagana.")
     try:
-        return create_user_group(session, body.name.strip())
+        grp = create_user_group(session, body.name.strip())
     except Exception:
-        raise HTTPException(status_code=409, detail=f"Grupa '{body.name}' już istnieje.")
+        raise HTTPException(status_code=409, detail="Grupa o podanej nazwie już istnieje.")
+    log_audit(session, "user_group_created", username=info["username"], detail=f"name={grp['name']}")
+    return grp
 
 
 @router.delete("/api/user-groups/{group_id}")
@@ -307,6 +339,7 @@ async def delete_usr_group(
         raise HTTPException(status_code=403, detail="Brak uprawnień.")
     if not delete_user_group(session, group_id):
         raise HTTPException(status_code=404, detail="Grupa nie znaleziona.")
+    log_audit(session, "user_group_deleted", username=info["username"], detail=f"id={group_id}")
     return {"deleted": group_id}
 
 
@@ -321,6 +354,8 @@ async def update_usr_group_members(
         raise HTTPException(status_code=403, detail="Brak uprawnień.")
     if not set_user_group_members(session, group_id, body.members):
         raise HTTPException(status_code=404, detail="Grupa nie znaleziona.")
+    log_audit(session, "user_group_members_updated", username=info["username"],
+              detail=f"id={group_id}")
     groups = get_user_groups(session)
     return next((g for g in groups if g["id"] == group_id), {})
 
@@ -468,7 +503,9 @@ async def download_backup(
         except OSError:
             pass
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Błąd tworzenia backupu: {e}")
+        import logging as _log
+        _log.getLogger(__name__).error("Backup failed: %s", e)
+        raise HTTPException(status_code=500, detail="Błąd tworzenia backupu.")
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"dockermind-backup-{timestamp}.sqlite"
     return StreamingResponse(

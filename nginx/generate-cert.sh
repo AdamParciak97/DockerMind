@@ -12,15 +12,17 @@ if [ -f "$CERT" ] && [ -f "$KEY" ]; then
     exit 0
 fi
 
-echo "[nginx] Generating self-signed SSL certificate (valid 10 years)..."
+echo "[nginx] Generating self-signed SSL certificate (valid 1 year)..."
 mkdir -p "$CERT_DIR"
 
-openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+if ! openssl req -x509 -nodes -newkey rsa:4096 -days 365 \
     -keyout "$KEY" \
     -out "$CERT" \
     -subj "/CN=dockermind/O=DockerMind/C=PL" \
-    -addext "subjectAltName=DNS:dockermind,DNS:localhost,IP:127.0.0.1" \
-    2>/dev/null
+    -addext "subjectAltName=DNS:dockermind,DNS:localhost,IP:127.0.0.1"; then
+    echo "[nginx] ERROR: SSL certificate generation failed." >&2
+    exit 1
+fi
 
 chmod 600 "$KEY"
 echo "[nginx] Certificate generated: $CERT"

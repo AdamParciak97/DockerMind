@@ -6,6 +6,7 @@ Collects container list, stats, logs, compose files, crash info.
 import os
 import glob
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -31,12 +32,23 @@ COMPOSE_FILENAMES = ["docker-compose.yml", "docker-compose.yaml", "compose.yml",
 # When running directly on host: HOST_ROOT="" (empty).
 HOST_ROOT = os.getenv("HOST_ROOT", "/host")
 
+_CONTAINER_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.\-]*$')
+
 
 def _hp(path: str) -> str:
-    """Translate a host absolute path to its location inside the container."""
-    if not HOST_ROOT or path.startswith(HOST_ROOT):
+    """Translate a host absolute path to its location inside the container.
+    Validates that the resolved path stays within HOST_ROOT to prevent traversal."""
+    if not HOST_ROOT:
         return path
-    return os.path.join(HOST_ROOT, path.lstrip("/"))
+    if path.startswith(HOST_ROOT):
+        real = os.path.realpath(path)
+    else:
+        real = os.path.realpath(os.path.join(HOST_ROOT, path.lstrip("/")))
+    allowed = os.path.realpath(HOST_ROOT)
+    if not real.startswith(allowed + os.sep) and real != allowed:
+        logger.warning("Path traversal blocked: %r resolves outside HOST_ROOT", path)
+        return ""
+    return real
 
 
 def get_docker_client() -> docker.DockerClient:
@@ -192,24 +204,29 @@ def _find_compose_file(container) -> Optional[str]:
     if config_files:
         for path in config_files.split(","):
             path = path.strip()
-            if path:
-                content = _read_file(_hp(path))
-                if content:
-                    return content
+            if path and os.path.splitext(path)[1].lower() in (".yml", ".yaml"):
+                translated = _hp(path)
+                if translated:
+                    content = _read_file(translated)
+                    if content:
+                        return content
 
     # 2. Working dir label — search for compose filename inside it
     working_dir = labels.get("com.docker.compose.project.working_dir", "")
     if working_dir:
-        for fname in COMPOSE_FILENAMES:
-            content = _read_file(os.path.join(_hp(working_dir), fname))
-            if content:
-                return content
+        translated_dir = _hp(working_dir)
+        if translated_dir:
+            for fname in COMPOSE_FILENAMES:
+                content = _read_file(os.path.join(translated_dir, fname))
+                if content:
+                    return content
 
     # 3. /etc/dockermind/<container-name>/  (always on host, mounted directly)
-    for fname in COMPOSE_FILENAMES:
-        content = _read_file(f"/etc/dockermind/{name}/{fname}")
-        if content:
-            return content
+    if _CONTAINER_RE.match(name):
+        for fname in COMPOSE_FILENAMES:
+            content = _read_file(f"/etc/dockermind/{name}/{fname}")
+            if content:
+                return content
 
     # 4. Broad recursive search under HOST_ROOT — match by project name or container name
     search_dirs = [os.path.join(HOST_ROOT, d.lstrip("/")) for d in COMPOSE_SEARCH_DIRS] \
@@ -383,12 +400,23 @@ def _find_compose_path(container) -> Optional[str]:
                 return candidate
 
     name = container.name
-    for fname in COMPOSE_FILENAMES:
-        candidate = f"/etc/dockermind/{name}/{fname}"
-        if os.path.exists(candidate):
-            return candidate
+    if _CONTAINER_RE.match(name):
+        for fname in COMPOSE_FILENAMES:
+            candidate = f"/etc/dockermind/{name}/{fname}"
+            if os.path.exists(candidate):
+                return candidate
 
     return None
+
+
+_COMPOSE_WRITE_ALLOWLIST = [
+    "/etc/dockermind",
+    "/opt",
+    "/home",
+    "/srv",
+    "/root",
+    "/var/lib/docker/compose",
+]
 
 
 def save_compose_file(container_name: str, content: str) -> dict:
@@ -399,13 +427,34 @@ def save_compose_file(container_name: str, content: str) -> dict:
         host_path = _find_compose_path(container)
         if not host_path:
             return {"success": False, "error": "Nie można określić ścieżki do pliku compose."}
+
+        # Validate the extension
+        if os.path.splitext(host_path)[1].lower() not in (".yml", ".yaml"):
+            return {"success": False, "error": "Dozwolony zapis tylko do plików .yml/.yaml."}
+
         write_path = _hp(host_path)
+        if not write_path:
+            return {"success": False, "error": "Ścieżka poza dozwolonym obszarem."}
+
+        # Check path is inside an allowed base directory (host-side)
+        real_host = os.path.realpath(host_path)
+        allowed = [
+            os.path.join(os.path.realpath(HOST_ROOT), d.lstrip("/"))
+            for d in _COMPOSE_WRITE_ALLOWLIST
+            if HOST_ROOT
+        ] + ["/etc/dockermind"]
+        if not any(real_host.startswith(a + os.sep) or real_host == a for a in allowed):
+            logger.warning("save_compose blocked — path outside allowlist: %r", host_path)
+            return {"success": False, "error": "Ścieżka poza dozwolonym obszarem."}
+
         with open(write_path, "w", encoding="utf-8") as f:
             f.write(content)
         return {"success": True, "path": host_path}
     except NotFound:
-        return {"success": False, "error": f"Kontener '{container_name}' nie znaleziony."}
+        return {"success": False, "error": "Kontener nie znaleziony."}
     except OSError as e:
-        return {"success": False, "error": f"Błąd zapisu: {e}"}
+        logger.error("save_compose OSError for %s: %s", container_name, e)
+        return {"success": False, "error": "Błąd zapisu pliku."}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        logger.error("save_compose error for %s: %s", container_name, e)
+        return {"success": False, "error": "Wewnętrzny błąd agenta."}

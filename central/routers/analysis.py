@@ -23,8 +23,6 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlmodel import Session
 
-import re as _re
-
 from auth import get_current_user_info
 from models import (
     Analysis,
@@ -77,7 +75,8 @@ async def trigger_analysis(
             params={"container": container_name},
         )
     except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        logger.warning("Agent request failed for %s/%s: %s", agent_id, container_name, e)
+        raise HTTPException(status_code=503, detail="Agent nie odpowiedział. Spróbuj ponownie.")
 
     if not snapshot or "error" in snapshot:
         raise HTTPException(
@@ -92,39 +91,41 @@ async def trigger_analysis(
 
     async def _run():
         from ai.analyzer import analyze_container
+        from models import engine as _engine
+        from sqlmodel import Session as _Session
         try:
             analysis = await analyze_container(
                 agent_id=agent_id,
                 snapshot=snapshot,
                 broadcast_fn=manager.broadcast_to_dashboards,
             )
-            saved = save_analysis(session, analysis)
-            analysis_id_holder.append(saved.id)
+            with _Session(_engine) as _sess:
+                saved = save_analysis(_sess, analysis)
+                analysis_id_holder.append(saved.id)
+                # Record crash event if restart_count > 0 or exit_code != 0
+                if snapshot.get("restart_count", 0) > 0 or snapshot.get("exit_code", 0) != 0:
+                    record_event(
+                        _sess,
+                        agent_id=agent_id,
+                        container_name=container_name,
+                        event_type="crash" if snapshot.get("exit_code", 0) != 0 else "restart",
+                        exit_code=snapshot.get("exit_code", 0),
+                        restart_count=snapshot.get("restart_count", 0),
+                        cpu_percent=snapshot.get("cpu_percent", 0.0),
+                        mem_percent=snapshot.get("memory", {}).get("percent", 0.0),
+                    )
             await manager.broadcast_to_dashboards("analysis_done", {
                 "agent_id": agent_id,
                 "container_name": container_name,
                 "analysis_id": saved.id,
                 "risk_level": saved.risk_level,
             })
-
-            # Record crash event if restart_count > 0 or exit_code != 0
-            if snapshot.get("restart_count", 0) > 0 or snapshot.get("exit_code", 0) != 0:
-                record_event(
-                    session,
-                    agent_id=agent_id,
-                    container_name=container_name,
-                    event_type="crash" if snapshot.get("exit_code", 0) != 0 else "restart",
-                    exit_code=snapshot.get("exit_code", 0),
-                    restart_count=snapshot.get("restart_count", 0),
-                    cpu_percent=snapshot.get("cpu_percent", 0.0),
-                    mem_percent=snapshot.get("memory", {}).get("percent", 0.0),
-                )
         except Exception as e:
             logger.error("Analysis failed for %s/%s: %s", agent_id, container_name, e)
             await manager.broadcast_to_dashboards("analysis_error", {
                 "agent_id": agent_id,
                 "container_name": container_name,
-                "error": str(e),
+                "error": "Analiza zakończona błędem.",
             })
 
     asyncio.create_task(_run())
@@ -233,15 +234,15 @@ async def download_pdf(
     if allowed is not None and obj.agent_id not in allowed:
         raise HTTPException(status_code=403, detail="Brak dostępu do tej analizy.")
     try:
-        pdf_bytes = await asyncio.get_event_loop().run_in_executor(None, _generate_pdf, obj)
+        pdf_bytes = await asyncio.get_running_loop().run_in_executor(None, _generate_pdf, obj)
     except Exception as e:
         logger.error("PDF generation failed: %s", e)
-        raise HTTPException(status_code=500, detail=f"Błąd generowania PDF: {e}")
-    filename = f"dockermind-{obj.container_name}-{obj.id}.pdf"
+        raise HTTPException(status_code=500, detail="Błąd generowania PDF.")
+    safe_name = _safe_filename(f"dockermind-{obj.container_name}-{obj.id}.pdf")
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{safe_name}"},
     )
 
 
@@ -251,7 +252,7 @@ class EmailRequest(BaseModel):
     to: str
 
 
-_EMAIL_RE = _re.compile(r'^[a-zA-Z0-9_.+\-]+@[a-zA-Z0-9\-]+\.[a-zA-Z0-9.\-]+$')
+_EMAIL_RE = re.compile(r'^[a-zA-Z0-9_.+\-]+@[a-zA-Z0-9\-]+\.[a-zA-Z0-9.\-]+$')
 
 
 @router.post("/api/analyses/{analysis_id}/email")
@@ -277,7 +278,7 @@ async def email_analysis(
         # ── Microsoft Graph / Exchange Online ─────────────────────────────────
         from exchange import send_via_exchange
         try:
-            pdf_bytes = await asyncio.get_event_loop().run_in_executor(
+            pdf_bytes = await asyncio.get_running_loop().run_in_executor(
                 None, _generate_pdf, obj
             )
             subject = (
@@ -289,11 +290,11 @@ async def email_analysis(
                 subject=subject,
                 html_body=_analysis_to_html(obj),
                 attachment_bytes=pdf_bytes,
-                attachment_name=f"dockermind-{obj.container_name}-{obj.id}.pdf",
+                attachment_name=_safe_filename(f"dockermind-{obj.container_name}-{obj.id}.pdf"),
             )
         except Exception as e:
             logger.error("Exchange send failed: %s", e)
-            raise HTTPException(status_code=500, detail=f"Błąd wysyłki Exchange: {e}")
+            raise HTTPException(status_code=500, detail="Błąd wysyłki Exchange.")
     else:
         # ── SMTP ──────────────────────────────────────────────────────────────
         if not settings.SMTP_HOST:
@@ -302,12 +303,12 @@ async def email_analysis(
                 detail="Brak konfiguracji email. Ustaw SMTP_HOST lub EXCHANGE_ENABLED=true w .env.",
             )
         try:
-            await asyncio.get_event_loop().run_in_executor(
+            await asyncio.get_running_loop().run_in_executor(
                 None, _send_email, body.to, obj, settings
             )
         except Exception as e:
             logger.error("SMTP send failed: %s", e)
-            raise HTTPException(status_code=500, detail=f"Błąd wysyłki SMTP: {e}")
+            raise HTTPException(status_code=500, detail="Błąd wysyłki SMTP.")
 
     return {"sent": True, "to": body.to}
 
@@ -342,6 +343,17 @@ def _analysis_full(a: Analysis) -> dict:
         "last_crash": a.last_crash,
         "created_at": a.created_at.isoformat(),
     }
+
+
+# ── Filename sanitization ─────────────────────────────────────────────────────
+
+_SAFE_FILENAME_RE = re.compile(r'[^\w.\-]')
+
+
+def _safe_filename(name: str) -> str:
+    """Strip characters that could inject into Content-Disposition headers."""
+    from urllib.parse import quote
+    return quote(_SAFE_FILENAME_RE.sub('_', name), safe='._-')
 
 
 # ── PDF / Email internal helpers ───────────────────────────────────────────────
@@ -482,7 +494,8 @@ def _analysis_to_html(analysis) -> str:
 def _send_email(to: str, analysis, settings) -> None:
     """Synchronous SMTP send — run in executor from async context."""
     msg = MIMEMultipart("mixed")
-    msg["Subject"] = f"DockerMind \u2014 Raport AI: {analysis.container_name} [{analysis.risk_level}]"
+    safe_cname = re.sub(r'[\r\n\t]', ' ', analysis.container_name)
+    msg["Subject"] = f"DockerMind \u2014 Raport AI: {safe_cname} [{analysis.risk_level}]"
     msg["From"]    = settings.SMTP_FROM or settings.SMTP_USER
     msg["To"]      = to
 
@@ -493,7 +506,7 @@ def _send_email(to: str, analysis, settings) -> None:
         part = MIMEApplication(pdf_bytes, _subtype="pdf")
         part.add_header(
             "Content-Disposition",
-            f'attachment; filename="dockermind-{analysis.container_name}-{analysis.id}.pdf"',
+            f"attachment; filename*=UTF-8''{_safe_filename(f'dockermind-{analysis.container_name}-{analysis.id}.pdf')}",
         )
         msg.attach(part)
     except Exception as pdf_err:
