@@ -1,5 +1,5 @@
 """
-config.py — Settings loaded from environment / .env file.
+config.py - Settings loaded from environment / .env file.
 """
 
 import logging
@@ -16,78 +16,106 @@ _INSECURE_PASSWORD = "changeme"
 
 
 class Settings:
-    # ── AI ────────────────────────────────────────────────────────────────────
-    AI_BASE_URL: str  = os.getenv("AI_BASE_URL", "https://ai.mgmt.pl/llama3/v1")
-    AI_MODEL: str     = os.getenv("AI_MODEL", "llama3")
+    # AI
+    AI_BASE_URL: str = os.getenv("AI_BASE_URL", "https://ai.mgmt.pl/llama3/v1")
+    AI_MODEL: str = os.getenv("AI_MODEL", "llama3")
+    AI_API_TOKEN: str = os.getenv("AI_API_TOKEN", "").strip()
     AI_TIMEOUT: float = float(os.getenv("AI_TIMEOUT", "600"))  # seconds
+    # Path to a CA bundle file for TLS verification of the AI endpoint.
+    # Leave empty to use system CA store. Set AI_VERIFY_SSL=false only for local dev.
+    AI_CA_CERT: str = os.getenv("AI_CA_CERT", "")
+    AI_VERIFY_SSL: bool = os.getenv("AI_VERIFY_SSL", "true").lower() == "true"
 
-    # ── Auth ──────────────────────────────────────────────────────────────────
-    CT_USERNAME: str   = os.getenv("CT_USERNAME", "admin")
-    CT_PASSWORD: str   = os.getenv("CT_PASSWORD", _INSECURE_PASSWORD)
+    # Auth
+    CT_USERNAME: str = os.getenv("CT_USERNAME", "admin")
+    CT_PASSWORD: str = os.getenv("CT_PASSWORD", _INSECURE_PASSWORD)
     CT_SECRET_KEY: str = os.getenv("CT_SECRET_KEY", _INSECURE_SECRET)
 
     # JWT settings
-    JWT_ALGORITHM: str      = "HS256"
+    JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))  # 8h
 
-    # ── Agent auth ────────────────────────────────────────────────────────────
+    # Agent auth
     AGENT_SECRET_TOKEN: str = os.getenv("AGENT_SECRET_TOKEN", "").strip()
 
-    # ── Server ────────────────────────────────────────────────────────────────
+    # Server
     CT_PORT: int = int(os.getenv("CT_PORT", "8080"))
 
-    # ── Email / SMTP ──────────────────────────────────────────────────────────
-    SMTP_HOST: str     = os.getenv("SMTP_HOST", "")
-    SMTP_PORT: int     = int(os.getenv("SMTP_PORT", "587"))
-    SMTP_USER: str     = os.getenv("SMTP_USER", "")
+    # Email / SMTP
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USER: str = os.getenv("SMTP_USER", "")
     SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
-    SMTP_FROM: str     = os.getenv("SMTP_FROM", "DockerMind")
-    SMTP_TLS: bool     = os.getenv("SMTP_TLS", "true").lower() == "true"
+    SMTP_FROM: str = os.getenv("SMTP_FROM", "DockerMind")
+    SMTP_TLS: bool = os.getenv("SMTP_TLS", "true").lower() == "true"
 
-    # ── Database ──────────────────────────────────────────────────────────────
+    # Database
     DB_PATH: str = os.getenv("DB_PATH", "/app/data/dockermind.db")
     DATABASE_URL: str = f"sqlite:///{DB_PATH}"
 
-    # ── Exchange / Microsoft Graph ────────────────────────────────────────────
-    EXCHANGE_ENABLED:       bool = os.getenv("EXCHANGE_ENABLED", "false").lower() == "true"
-    EXCHANGE_TENANT_ID:     str  = os.getenv("EXCHANGE_TENANT_ID", "")
-    EXCHANGE_CLIENT_ID:     str  = os.getenv("EXCHANGE_CLIENT_ID", "")
-    EXCHANGE_CLIENT_SECRET: str  = os.getenv("EXCHANGE_CLIENT_SECRET", "")
+    # Exchange / Microsoft Graph
+    EXCHANGE_ENABLED: bool = os.getenv("EXCHANGE_ENABLED", "false").lower() == "true"
+    EXCHANGE_TENANT_ID: str = os.getenv("EXCHANGE_TENANT_ID", "")
+    EXCHANGE_CLIENT_ID: str = os.getenv("EXCHANGE_CLIENT_ID", "")
+    EXCHANGE_CLIENT_SECRET: str = os.getenv("EXCHANGE_CLIENT_SECRET", "")
     # Mailbox from which emails are sent (must have Mail.Send permission)
-    EXCHANGE_SENDER:        str  = os.getenv("EXCHANGE_SENDER", "")
+    EXCHANGE_SENDER: str = os.getenv("EXCHANGE_SENDER", "")
 
-    # ── LDAP ──────────────────────────────────────────────────────────────────
-    LDAP_ENABLED: bool        = os.getenv("LDAP_ENABLED", "false").lower() == "true"
-    LDAP_SERVER: str          = os.getenv("LDAP_SERVER", "")
-    LDAP_PORT: int            = int(os.getenv("LDAP_PORT", "389"))
-    LDAP_USE_SSL: bool        = os.getenv("LDAP_USE_SSL", "false").lower() == "true"
-    LDAP_USE_TLS: bool        = os.getenv("LDAP_USE_TLS", "false").lower() == "true"
-    LDAP_TLS_VERIFY: bool     = os.getenv("LDAP_TLS_VERIFY", "true").lower() == "true"
-    LDAP_BIND_DN: str         = os.getenv("LDAP_BIND_DN", "")
-    LDAP_BIND_PASSWORD: str   = os.getenv("LDAP_BIND_PASSWORD", "")
-    LDAP_BASE_DN: str         = os.getenv("LDAP_BASE_DN", "")
+    # LDAP
+    LDAP_ENABLED: bool = os.getenv("LDAP_ENABLED", "false").lower() == "true"
+    LDAP_SERVER: str = os.getenv("LDAP_SERVER", "")
+    LDAP_PORT: int = int(os.getenv("LDAP_PORT", "389"))
+    LDAP_USE_SSL: bool = os.getenv("LDAP_USE_SSL", "false").lower() == "true"
+    LDAP_USE_TLS: bool = os.getenv("LDAP_USE_TLS", "false").lower() == "true"
+    LDAP_TLS_VERIFY: bool = os.getenv("LDAP_TLS_VERIFY", "true").lower() == "true"
+    LDAP_BIND_DN: str = os.getenv("LDAP_BIND_DN", "")
+    LDAP_BIND_PASSWORD: str = os.getenv("LDAP_BIND_PASSWORD", "")
+    LDAP_BASE_DN: str = os.getenv("LDAP_BASE_DN", "")
     # {username} is replaced with the sanitized login name
-    LDAP_USER_FILTER: str     = os.getenv("LDAP_USER_FILTER", "(sAMAccountName={username})")
+    LDAP_USER_FILTER: str = os.getenv("LDAP_USER_FILTER", "(sAMAccountName={username})")
     # DN of the group whose members receive role=admin; empty = everyone is "user"
-    LDAP_ADMIN_GROUP_DN: str  = os.getenv("LDAP_ADMIN_GROUP_DN", "")
+    LDAP_ADMIN_GROUP_DN: str = os.getenv("LDAP_ADMIN_GROUP_DN", "")
 
 
 settings = Settings()
 
 
 def warn_insecure_defaults() -> None:
-    """Log prominent warnings when insecure default credentials are in use."""
+    """Abort startup if critical secrets are insecure defaults; warn about others."""
+    errors = []
     if settings.CT_SECRET_KEY == _INSECURE_SECRET:
-        logger.error(
-            "SECURITY: CT_SECRET_KEY is the default insecure value! "
+        errors.append(
+            "CT_SECRET_KEY is the default insecure value. "
             "Set a strong random key in .env (openssl rand -hex 32)."
         )
     if settings.CT_PASSWORD == _INSECURE_PASSWORD:
-        logger.error(
-            "SECURITY: CT_PASSWORD is 'changeme'! "
+        errors.append(
+            "CT_PASSWORD is 'changeme'. "
             "Set a strong password in .env before exposing this service."
+        )
+    if errors:
+        for msg in errors:
+            logger.critical("SECURITY: %s", msg)
+        raise RuntimeError(
+            "Application startup blocked due to insecure default credentials. "
+            "Fix the above issues in your .env file."
         )
     if not settings.AGENT_SECRET_TOKEN:
         logger.warning(
-            "SECURITY: AGENT_SECRET_TOKEN is not set — agent authentication is disabled."
+            "SECURITY: AGENT_SECRET_TOKEN is not set - agent authentication is disabled."
+        )
+
+
+def validate_runtime_config() -> None:
+    """Abort startup if required runtime configuration is missing."""
+    errors = []
+    if not settings.AI_API_TOKEN:
+        errors.append(
+            "AI_API_TOKEN is not set. Configure a valid AI token in the container environment."
+        )
+    if errors:
+        for msg in errors:
+            logger.critical("CONFIG: %s", msg)
+        raise RuntimeError(
+            "Application startup blocked due to invalid or incomplete runtime configuration."
         )

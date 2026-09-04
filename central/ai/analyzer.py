@@ -41,12 +41,16 @@ def _get_semaphore() -> asyncio.Semaphore:
 def get_client() -> OpenAI:
     global _client
     if _client is None:
+        if not settings.AI_API_TOKEN:
+            raise RuntimeError(
+                "AI_API_TOKEN is not set. Configure a valid AI token in the container environment."
+            )
         ssl_verify: bool | str = settings.AI_CA_CERT if settings.AI_CA_CERT else settings.AI_VERIFY_SSL
         if not ssl_verify:
             logger.warning("AI_VERIFY_SSL=false — TLS certificate verification is disabled")
         _client = OpenAI(
             base_url=settings.AI_BASE_URL,
-            api_key="none",
+            api_key=settings.AI_API_TOKEN,
             http_client=httpx.Client(
                 verify=ssl_verify,
                 timeout=httpx.Timeout(

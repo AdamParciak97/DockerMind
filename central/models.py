@@ -5,6 +5,7 @@ models.py — SQLModel database models for DockerMind central.
 import base64
 import hashlib
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -303,7 +304,12 @@ def _migrate_db() -> None:
     con.close()
 
 
+_IDENT_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+
 def _add_column_if_missing(cur, table: str, column: str, col_def: str) -> None:
+    if not _IDENT_RE.match(table) or not _IDENT_RE.match(column):
+        raise ValueError(f"Invalid identifier in migration: table={table!r}, column={column!r}")
     try:
         cur.execute(f"SELECT {column} FROM {table} LIMIT 1")
     except Exception:

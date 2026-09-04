@@ -13,6 +13,7 @@ import os
 import pty
 import re
 import socket
+import ssl
 import struct
 import sys
 import termios
@@ -39,9 +40,11 @@ logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CENTRAL_URL: str  = os.getenv("CENTRAL_URL", "ws://localhost/ws/agent")
+CENTRAL_CA_CERT: str = os.getenv("CENTRAL_CA_CERT", "").strip()
 AGENT_TOKEN: str  = os.getenv("AGENT_TOKEN", "")
 AGENT_NAME: str   = os.getenv("AGENT_NAME", socket.gethostname())
 AGENT_IP: str     = os.getenv("AGENT_IP", "")   # explicit host IP (recommended)
+HOST_ACCESS_ENABLED = os.getenv("HOST_ACCESS_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
 
 STREAM_INTERVAL = 30          # seconds between full data pushes
 PING_INTERVAL   = 20          # WebSocket ping keepalive
@@ -192,9 +195,14 @@ async def _read_pty_output(session_id: str, master_fd: int, ws) -> None:
         _exec_sessions.pop(session_id, None)
 
 
-async def handle_exec_start(ws, session_id: str, container: str, cols: int, rows: int) -> None:
-    if not _CONTAINER_RE.match(container):
-        logger.warning("exec_start rejected — invalid container name: %r", container[:64])
+async def handle_exec_start(ws, session_id: str, target: str, cols: int, rows: int) -> None:
+    is_host = target == "__host__"
+    if not is_host and not _CONTAINER_RE.match(target):
+        logger.warning("exec_start rejected — invalid target: %r", target[:64])
+        await send_json(ws, {"type": "exec_ended", "session_id": session_id})
+        return
+    if is_host and not HOST_ACCESS_ENABLED:
+        logger.warning("host exec rejected — HOST_ACCESS_ENABLED is false")
         await send_json(ws, {"type": "exec_ended", "session_id": session_id})
         return
     if len(_exec_sessions) >= _MAX_EXEC_SESSIONS:
@@ -205,8 +213,13 @@ async def handle_exec_start(ws, session_id: str, container: str, cols: int, rows
     _set_pty_size(slave_fd, cols, rows)
 
     try:
+        command = (
+            ("nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "--", "/bin/sh")
+            if is_host else
+            ("docker", "exec", "-it", "--", target, "/bin/sh")
+        )
         proc = await asyncio.create_subprocess_exec(
-            "docker", "exec", "-it", "--", container, "/bin/sh",
+            *command,
             stdin=slave_fd,
             stdout=slave_fd,
             stderr=slave_fd,
@@ -216,14 +229,14 @@ async def handle_exec_start(ws, session_id: str, container: str, cols: int, rows
     except Exception as e:
         os.close(slave_fd)
         os.close(master_fd)
-        logger.error("exec_start failed for %s: %s", container, e)
+        logger.error("exec_start failed for %s: %s", target, e)
         await send_json(ws, {"type": "exec_ended", "session_id": session_id})
         return
 
     os.close(slave_fd)
     task = asyncio.create_task(_read_pty_output(session_id, master_fd, ws))
     _exec_sessions[session_id] = {"master_fd": master_fd, "proc": proc, "task": task}
-    logger.info("Exec session started: %s → %s", session_id[:8], container)
+    logger.info("Exec session started: %s → %s", session_id[:8], "host" if is_host else target)
 
 
 async def handle_exec_input(session_id: str, data_b64: str) -> None:
@@ -400,7 +413,7 @@ async def receive_loop(ws) -> None:
                 asyncio.create_task(handle_exec_start(
                     ws,
                     message.get("session_id", ""),
-                    message.get("container", ""),
+                    message.get("target", message.get("container", "")),
                     int(message.get("cols", 80)),
                     int(message.get("rows", 24)),
                 ))
@@ -423,6 +436,15 @@ async def receive_loop(ws) -> None:
             logger.warning("Invalid JSON from central: %s", e)
 
 
+def build_tls_context() -> ssl.SSLContext | None:
+    """Create TLS context for wss:// connections using system CA or a custom CA bundle."""
+    if not CENTRAL_URL.lower().startswith("wss://"):
+        return None
+    if CENTRAL_CA_CERT:
+        return ssl.create_default_context(cafile=CENTRAL_CA_CERT)
+    return ssl.create_default_context()
+
+
 async def connect_and_run() -> None:
     """Open WebSocket, register, then run stream + receive loops concurrently."""
     # Pass token as query param — compatible with all websockets versions
@@ -432,6 +454,7 @@ async def connect_and_run() -> None:
     logger.info("Connecting to %s ...", CENTRAL_URL)
     async with websockets.connect(
         url,
+        ssl=build_tls_context(),
         ping_interval=PING_INTERVAL,
         ping_timeout=PING_TIMEOUT,
         max_size=64 * 1024 * 1024,   # 64 MB — logs can be large

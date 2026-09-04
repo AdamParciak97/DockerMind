@@ -1,0 +1,694 @@
+====================================================================
+  RAPORT PODATNOŚCI BEZPIECZEŃSTWA
+  Wygenerowano : 24.04.2026, 07:02:20
+  Katalog      : D:\cursor\kursor-projekty\docker-mind\dockermind
+====================================================================
+
+PODSUMOWANIE
+────────────────────────────────────────────────────────────────────
+  Pliki przeskanowane  : 33
+  Pliki z podatnościami: 25
+  Bezpieczne           : 6
+
+  Podatności wg poziomu:
+    Krytyczny     : 4
+    Wysoki        : 4
+    Średni        : 44
+    Niski         : 50
+    Informacja    : 25
+
+  Podatności CVE (biblioteki):
+    GHSA-mf9w-mj56-hr94 — python-dotenv@1.0.1
+    GHSA-2vrm-gr82-f7m5 — aiohttp@3.9.5
+    GHSA-3wq7-rqq7-wx6j — aiohttp@3.9.5
+    GHSA-54jq-c3m8-4m76 — aiohttp@3.9.5
+    GHSA-63hf-3vf5-4wqf — aiohttp@3.9.5
+    GHSA-69f9-5gxw-wvc2 — aiohttp@3.9.5
+    GHSA-6jhg-hg63-jvvf — aiohttp@3.9.5
+    GHSA-6mq8-rvhq-8wgg — aiohttp@3.9.5
+    GHSA-8495-4g3g-x7pr — aiohttp@3.9.5
+    GHSA-9548-qrrj-x5pj — aiohttp@3.9.5
+    GHSA-966j-vmvw-g2g9 — aiohttp@3.9.5
+    GHSA-c427-h43c-vf67 — aiohttp@3.9.5
+    GHSA-fh55-r93g-j68g — aiohttp@3.9.5
+    GHSA-g84x-mcqj-x9qq — aiohttp@3.9.5
+    GHSA-hcc4-c3v8-rx92 — aiohttp@3.9.5
+    GHSA-jj3x-wxrx-4x23 — aiohttp@3.9.5
+    GHSA-m5qp-6w8w-w647 — aiohttp@3.9.5
+    GHSA-mqqc-3gqh-h2x8 — aiohttp@3.9.5
+    GHSA-mwh4-6h8g-pg8w — aiohttp@3.9.5
+    GHSA-p998-jp59-783m — aiohttp@3.9.5
+    GHSA-w2fm-2cpv-w7v5 — aiohttp@3.9.5
+    GHSA-mf9w-mj56-hr94 — python-dotenv@1.0.1
+    GHSA-752w-5fwx-jx9f — pyjwt@2.8.0
+    GHSA-59g5-xgcq-4qw3 — python-multipart@0.0.9
+    GHSA-mj87-hwqh-73pj — python-multipart@0.0.9
+    GHSA-wp53-j4wj-2cfg — python-multipart@0.0.9
+    GHSA-6vqw-3v5j-54x4 — cryptography@42.0.0
+    GHSA-79v4-65xg-pq4g — cryptography@42.0.0
+    GHSA-9v9h-cgj8-h64p — cryptography@42.0.0
+    GHSA-h4gh-qq45-vh27 — cryptography@42.0.0
+    GHSA-m959-cc7f-wv43 — cryptography@42.0.0
+    GHSA-r6ph-v2qm-q3c2 — cryptography@42.0.0
+    PYSEC-2024-225 — cryptography@42.0.0
+
+  Tokeny API     : 88 703
+  Szac. koszt    : $2.8832
+
+
+SZCZEGÓŁY PODATNOŚCI
+────────────────────────────────────────────────────────────────────
+[1] NISKI — Overly Permissive Wildcard Commands
+    Plik    : .claude/settings.local.json (linia 4)
+    Opis    : Wiele reguł uprawnień używa wildcardów (np. `Bash(docker compose:*)`, `Bash(git push:*)`), co pozwala na wykonanie dowolnych podkomend tych narzędzi. Na przykład `Bash(gh release:*)` może pozwolić na tworzenie/usuwanie release'ów, a `Bash(git push:*)` na push do dowolnego zdalnego repozytorium i gałęzi.
+    Naprawa : Ogranicz uprawnienia wildcard do konkretnych podkomend i argumentów, np. zamiast `Bash(docker compose:*)` użyj `Bash(docker compose up:*)` i `Bash(docker compose down:*)` osobno.
+
+[2] NISKI — Unrestricted rm -rf Permission
+    Plik    : .claude/settings.local.json (linia 21)
+    Opis    : Uprawnienie `Bash(rm -rf offline-package)` jest ograniczone do konkretnego katalogu, ale komenda `rm -rf` jest z natury destrukcyjna. W przypadku przyszłej modyfikacji wzorca mogłoby dojść do niezamierzonego usunięcia danych.
+    Naprawa : Rozważ użycie bezpieczniejszego podejścia, np. przenoszenia do kosza zamiast bezpośredniego usuwania, lub dodaj dodatkowe zabezpieczenia przed wykonaniem destrukcyjnych komend.
+
+[3] INFORMACJA — Hardcoded Local Path Disclosure
+    Plik    : .claude/settings.local.json (linia 24)
+    Opis    : Ścieżki absolutne systemu Windows (np. `D:/cursor/kursor-projekty/docker-mind/dockermind/...`) są zakodowane na stałe w pliku konfiguracyjnym. Ujawnia to strukturę katalogów i nazwę użytkownika/projektu, co może stanowić wyciek informacji.
+    Naprawa : Używaj ścieżek względnych zamiast absolutnych. Zastąp hardkodowane ścieżki Windows ścieżkami relatywnymi do katalogu projektu.
+
+[4] ŚREDNI — Path Traversal
+    Plik    : agent/collector.py (linia 53)
+    Opis    : Funkcja _hp() próbuje zapobiegać path traversal, ale sprawdzenie opiera się na os.path.realpath() i porównaniu prefiksów. W przypadku race condition (TOCTOU) lub gdyby HOST_ROOT był pustym ciągiem, ścieżka jest zwracana bez walidacji. Ponadto sprawdzenie `real.startswith(allowed + os.sep)` może być obejście w specyficznych sytuacjach z dowiązaniami symbolicznymi tworzonymi między momentem sprawdzenia a momentem użycia.
+    Naprawa : Użyj bardziej rygorystycznej walidacji ścieżek, np. os.path.commonpath(). Rozważ użycie chroot lub mechanizmów sandboxing na poziomie OS. Dodaj sprawdzenie, czy ścieżka nie zawiera dowiązań symbolicznych wychodzących poza dozwolony katalog (os.path.realpath na każdym komponencie ścieżki).
+
+[5] ŚREDNI — Information Disclosure
+    Plik    : agent/collector.py (linia 229)
+    Opis    : Logi kontenerów (ostatnie 100 linii) są zbierane i przechowywane w danych wyjściowych bez filtrowania wrażliwych informacji. Logi mogą zawierać hasła, tokeny API, dane osobowe lub inne sekrety, które mogą zostać ujawnione dalszym konsumentom tych danych.
+    Naprawa : Rozważ filtrowanie lub maskowanie potencjalnie wrażliwych danych w logach (np. wzorców wyglądających jak tokeny, hasła, klucze API) przed ich przekazaniem dalej. Ogranicz dostęp do zebranych danych.
+
+[6] NISKI — Recursive File System Scan (DoS)
+    Plik    : agent/collector.py (linia 200)
+    Opis    : Funkcja _find_compose_file() wykonuje rekurencyjne przeszukiwanie glob w szerokich katalogach (/opt, /home, /srv, /root) co może prowadzić do nadmiernego zużycia zasobów (CPU, I/O) w systemach z dużą liczbą plików, powodując de facto denial-of-service.
+    Naprawa : Ogranicz głębokość rekurencji przeszukiwania. Dodaj timeout lub limit liczby przeszukiwanych plików. Rozważ cache'owanie wyników lub ograniczenie przeszukiwanych katalogów do bardziej precyzyjnych lokalizacji.
+
+[7] NISKI — Unvalidated Path Read
+    Plik    : agent/collector.py (linia 175)
+    Opis    : W punkcie 3 wyszukiwania compose (_find_compose_file) ścieżka `/etc/dockermind/{name}/` jest konstruowana bezpośrednio z nazwy kontenera bez walidacji. Nazwa kontenera może zawierać znaki specjalne (np. '..'), co mogłoby prowadzić do odczytu plików poza zamierzonym katalogiem.
+    Naprawa : Waliduj nazwę kontenera przed użyciem w ścieżkach plików — upewnij się, że nie zawiera separatorów ścieżek ani sekwencji '..' . Użyj funkcji _hp() lub analogicznego mechanizmu ochrony przed traversal.
+
+[8] INFORMACJA — Broad Exception Handling
+    Plik    : agent/collector.py (linia 235)
+    Opis    : W wielu miejscach kodu używane jest szerokie przechwytywanie wyjątków (except Exception), co może maskować nieoczekiwane błędy i utrudniać debugowanie.
+    Naprawa : Zawęź klauzule except do konkretnych typów wyjątków, aby nieoczekiwane błędy nie były cichutko ignorowane.
+
+[9] KRYTYCZNY — Docker Socket Exposure
+    Plik    : agent/docker-compose.yml (linia 8)
+    Opis    : Montowanie /var/run/docker.sock wewnątrz kontenera daje pełną kontrolę nad demonem Docker hosta. Atakujący, który przejmie kontener, może tworzyć uprzywilejowane kontenery, uzyskać dostęp root do hosta i eskalować uprawnienia mimo zastosowanych ograniczeń (cap_drop, no-new-privileges, read_only).
+    Naprawa : Unikaj montowania docker.sock bezpośrednio. Użyj Docker API proxy z filtrowaniem dozwolonych operacji (np. Tecnativa/docker-socket-proxy) ograniczając dostęp tylko do odczytu wymaganych endpointów.
+
+[10] KRYTYCZNY — Host Filesystem Mount
+    Plik    : agent/docker-compose.yml (linia 10)
+    Opis    : Montowanie całego systemu plików hosta (/ -> /host) bez ograniczenia do trybu tylko-do-odczytu daje kontenerowi pełny dostęp do zapisu na dysku hosta. W połączeniu z docker.sock pozwala to na pełne przejęcie systemu hosta — modyfikację /etc/shadow, /etc/crontab, kluczy SSH itp.
+    Naprawa : Zamontuj główny system plików hosta w trybie tylko-do-odczytu (/:/host:ro) lub, jeszcze lepiej, zamontuj jedynie konkretne katalogi, które są faktycznie potrzebne agentowi.
+
+[11] ŚREDNI — Cleartext WebSocket Communication
+    Plik    : agent/docker-compose.yml (linia 14)
+    Opis    : Połączenie do serwera centralnego odbywa się przez nieszyfrowany protokół ws:// zamiast wss://. Token agenta (AGENT_TOKEN) jest przesyłany w niezaszyfrowanym kanale, co umożliwia przechwycenie poświadczeń przez atakującego w sieci (man-in-the-middle).
+    Naprawa : Zmień protokół na wss:// (WebSocket over TLS) i upewnij się, że serwer centralny posiada prawidłowy certyfikat TLS.
+
+[12] ŚREDNI — Sensitive Token in Environment Variable
+    Plik    : agent/docker-compose.yml (linia 15)
+    Opis    : Token agenta (AGENT_TOKEN) jest przekazywany jako zmienna środowiskowa, co oznacza, że jest widoczny przez 'docker inspect', w /proc/<pid>/environ oraz w logach orkiestratorów. Może zostać przypadkowo ujawniony.
+    Naprawa : Użyj mechanizmu Docker secrets lub zamontuj token z pliku (/etc/dockermind/ jest już montowany jako ro) zamiast przekazywać go przez zmienną środowiskową.
+
+[13] ŚREDNI — Information Disclosure via /proc
+    Plik    : agent/docker-compose.yml (linia 11)
+    Opis    : Montowanie /proc/1/net z hosta (proces PID 1 — init/systemd) ujawnia informacje o interfejsach sieciowych, tablicach routingu i połączeniach TCP/UDP hosta. Może to ułatwić atakującemu rekonesans w przypadku kompromitacji kontenera.
+    Naprawa : Ogranicz dostęp do /proc hosta do absolutnego minimum lub pobieraj informacje sieciowe poprzez bezpieczniejszy mechanizm (np. dedykowane API).
+
+[14] NISKI — Missing Image Pinning
+    Plik    : agent/docker-compose.yml (linia 5)
+    Opis    : Obraz budowany jest lokalnie z tagu 1.2 bez pinowania do konkretnego digest. W przypadku manipulacji obrazem bazowym w Dockerfile, kontener może uruchomić zmodyfikowany kod.
+    Naprawa : Używaj pełnych digestów obrazów (image@sha256:...) w Dockerfile FROM oraz rozważ podpisywanie obrazów (Docker Content Trust).
+
+[15] WYSOKI — Command Injection via container name
+    Plik    : agent/main.py (linia 176)
+    Opis    : Funkcja handle_exec_start przekazuje parametr 'container' bezpośrednio do asyncio.create_subprocess_exec jako argument komendy 'docker exec -it'. Choć regex _CONTAINER_RE ogranicza dozwolone znaki, nadal pozwala na nazwy takie jak '--help' lub '--privileged' (zaczynające się od litery/cyfry, ale zawierające myślniki), co może prowadzić do manipulacji flagami dockera. Ponadto uruchomienie powłoki /bin/sh w dowolnym kontenerze daje pełny dostęp do tego kontenera.
+    Naprawa : Dodaj walidację, że nazwa kontenera nie zaczyna się od '-'. Użyj '--' przed nazwą kontenera w wywołaniu docker exec, aby oddzielić flagi od argumentów: 'docker', 'exec', '-it', '--', container, '/bin/sh'. Rozważ białą listę dozwolonych kontenerów.
+
+[16] WYSOKI — Arbitrary File Write via save_compose
+    Plik    : agent/main.py (linia 253)
+    Opis    : Akcja 'save_compose' przyjmuje nazwę kontenera i dowolną treść, a następnie wywołuje collector.save_compose_file(). Jeśli funkcja ta nie waliduje ścieżki dostatecznie, atakujący może nadpisać dowolne pliki na hoście. Nawet z walidacją regex na nazwie kontenera, ścieżka do pliku compose może być kontrolowana przez metadane kontenera.
+    Naprawa : Upewnij się, że collector.save_compose_file() waliduje i kanonizuje ścieżkę zapisu. Ogranicz zapis do konkretnego katalogu. Rozważ dodanie dodatkowej autoryzacji dla tej operacji.
+
+[17] ŚREDNI — Insufficient Authentication
+    Plik    : agent/main.py (linia 44)
+    Opis    : Token agenta (AGENT_TOKEN) ma domyślną wartość pustego stringa. Jeśli zmienna środowiskowa nie jest ustawiona, agent łączy się bez uwierzytelnienia. Połączenie WebSocket może być nieszyfrowane (ws:// zamiast wss://), co pozwala na przechwycenie tokena i danych.
+    Naprawa : Wymuś obecność AGENT_TOKEN — jeśli jest pusty, agent nie powinien się uruchamiać. Zmień domyślny CENTRAL_URL na wss:// i wymuś szyfrowane połączenie.
+
+[18] ŚREDNI — Information Disclosure via Error Messages
+    Plik    : agent/main.py (linia 241)
+    Opis    : W akcji 'trigger_analysis', gdy wystąpi wyjątek, jego treść (str(e)) jest odsyłana do serwera centralnego w polu 'error'. Może to ujawnić wewnętrzne informacje o infrastrukturze, ścieżkach plików lub konfiguracji Dockera.
+    Naprawa : Zaloguj pełny błąd po stronie agenta, ale zwracaj ogólny komunikat błędu bez szczegółów implementacji.
+
+[19] ŚREDNI — Denial of Service - Resource Exhaustion
+    Plik    : agent/main.py (linia 141)
+    Opis    : Limit sesji exec wynosi 10 (_MAX_EXEC_SESSIONS), ale nie ma mechanizmu timeout dla nieaktywnych sesji. Atakujący może otworzyć 10 sesji i nigdy ich nie zamknąć, blokując możliwość tworzenia nowych sesji i wyczerpując deskryptory plików PTY.
+    Naprawa : Dodaj timeout dla sesji exec (np. 30 minut nieaktywności). Implementuj automatyczne czyszczenie martwych sesji i ogranicz sesje per użytkownik.
+
+[20] ŚREDNI — Insecure Default Configuration
+    Plik    : agent/main.py (linia 43)
+    Opis    : Domyślny CENTRAL_URL używa nieszyfrowanego protokołu ws:// (nie wss://). Cała komunikacja, w tym token agenta, dane kontenerów i sesje terminala, jest przesyłana w postaci jawnej.
+    Naprawa : Zmień domyślny protokół na wss:// i dodaj walidację, że CENTRAL_URL używa szyfrowanego połączenia w środowisku produkcyjnym.
+
+[21] NISKI — Log Injection
+    Plik    : agent/main.py (linia 230)
+    Opis    : Parametry żądania (action, params) są logowane bezpośrednio bez sanityzacji. Atakujący może wstrzyknąć znaki nowej linii lub sekwencje ANSI w parametrach, manipulując logami.
+    Naprawa : Sanityzuj dane wejściowe przed logowaniem — usuń znaki kontrolne i ogranicz długość logowanych parametrów.
+
+[22] ŚREDNI — Unsafe rm -rf
+    Plik    : build-and-export.sh (linia 27)
+    Opis    : Komenda `rm -rf offline-package` usuwa rekursywnie katalog bez dodatkowego potwierdzenia. Chociaż istnieje sprawdzenie czy ścieżka nie jest plikiem (linie 23-26), w środowisku wieloużytkownikowym lub przy manipulacji dowiązaniami symbolicznymi (symlink race / TOCTOU) atakujący mógłby podmienić katalog offline-package na symlink do krytycznego katalogu systemowego między sprawdzeniem a wykonaniem rm -rf.
+    Naprawa : Użyj bezpieczniejszej ścieżki bezwzględnej lub dodaj sprawdzenie czy offline-package nie jest symlinkiem: `if [ -L offline-package ]; then echo 'ERROR: symlink detected'; exit 1; fi`. Rozważ użycie `mktemp -d` do tworzenia tymczasowego katalogu budowania.
+
+[23] NISKI — Hardcoded image tags
+    Plik    : build-and-export.sh (linia 5)
+    Opis    : Tagi obrazów Docker (np. `1.2`) są zahardkodowane w skrypcie. Nie jest to bezpośrednia podatność, ale utrudnia śledzenie wersji i może prowadzić do sytuacji, w której stary, podatny obraz jest używany pod tym samym tagiem.
+    Naprawa : Użyj zmiennej środowiskowej lub argumentu skryptu dla wersji, np. `VERSION=${1:-1.2}` i stosuj `dockermind-web:$VERSION`.
+
+[24] INFORMACJA — Brak weryfikacji integralności plików tar
+    Plik    : build-and-export.sh (linia 33)
+    Opis    : Wyeksportowane pliki .tar nie są podpisywane ani nie jest generowana suma kontrolna (checksum). Ktoś mógłby podmienić plik tar w paczce offline na złośliwy obraz Docker.
+    Naprawa : Wygeneruj sumy kontrolne SHA256 po eksporcie (`sha256sum *.tar > checksums.sha256`) i weryfikuj je w skryptach install.sh przed załadowaniem obrazów (`sha256sum -c checksums.sha256`).
+
+[25] INFORMACJA — Tymczasowe pliki tar nie są sprzątane
+    Plik    : build-and-export.sh (linia 33)
+    Opis    : Pliki .tar (dockermind-web.tar, dockermind-agent.tar, nginx.tar) pozostają w katalogu roboczym po zakończeniu skryptu, zajmując miejsce i potencjalnie eksponując obrazy Docker poza docelową paczką.
+    Naprawa : Dodaj na końcu skryptu czyszczenie: `rm -f dockermind-web.tar dockermind-agent.tar nginx.tar` lub użyj `trap` do sprzątania przy wyjściu.
+
+[26] ŚREDNI — CWE-295: Improper Certificate Validation
+    Plik    : central/ai/analyzer.py (linia 37)
+    Opis    : Weryfikacja certyfikatu TLS może być wyłączona przez ustawienie AI_VERIFY_SSL=false. Gdy weryfikacja jest wyłączona, komunikacja z serwerem AI jest podatna na ataki man-in-the-middle (MITM). Atakujący w sieci może przechwycić lub zmodyfikować odpowiedzi AI.
+    Naprawa : Wymuś weryfikację TLS w środowiskach produkcyjnych. Zamiast pozwalać na całkowite wyłączenie weryfikacji, wymagaj podania ścieżki do certyfikatu CA (AI_CA_CERT) lub wyrzucaj wyjątek, jeśli AI_VERIFY_SSL jest false w produkcji.
+
+[27] NISKI — CWE-798: Hardcoded Credentials
+    Plik    : central/ai/analyzer.py (linia 41)
+    Opis    : Klucz API jest na stałe ustawiony na wartość 'none' (api_key="none"). Choć serwer prawdopodobnie nie wymaga autentykacji, zakodowanie na stałe wartości klucza API jest złą praktyką i utrudnia późniejsze dodanie właściwej autentykacji.
+    Naprawa : Przenieś wartość klucza API do konfiguracji (settings.AI_API_KEY) z domyślną wartością 'none', aby można było łatwo dodać właściwą autentykację bez modyfikacji kodu.
+
+[28] NISKI — CWE-117: Improper Output Neutralization for Logs
+    Plik    : central/ai/analyzer.py (linia 118)
+    Opis    : Nazwa kontenera i inne dane pochodzące z agenta (snapshot) są wstawiane bezpośrednio do logów bez sanityzacji. Atakujący kontrolujący nazwę kontenera mógłby wstrzyknąć fałszywe wpisy w logach (log injection/log forging).
+    Naprawa : Sanityzuj dane wejściowe przed logowaniem — usuń lub zakoduj znaki nowej linii i inne znaki sterujące z pól takich jak container_name, zanim zostaną zapisane w logach.
+
+[29] NISKI — CWE-94: Prompt Injection
+    Plik    : central/ai/analyzer.py (linia 69)
+    Opis    : Dane z agenta (logi kontenera, docker-compose.yml, nazwy) są wstawiane bezpośrednio do promptu AI bez żadnej sanityzacji. Złośliwy kontener może umieścić w logach instrukcje manipulujące odpowiedzią modelu AI (prompt injection), co może prowadzić do fałszywych diagnoz lub ukrycia rzeczywistych problemów.
+    Naprawa : Zaimplementuj sanityzację danych wejściowych przed wstawieniem do promptu — ograniczaj dozwolone znaki, oznaczaj sekcje danych jako niezaufane i rozważ użycie technik takich jak delimitery lub instrukcje systemowe ostrzegające model przed manipulacją.
+
+[30] INFORMACJA — CWE-209: Information Exposure Through Error Message
+    Plik    : central/ai/analyzer.py (linia 157)
+    Opis    : W przypadku błędu AI ogólny komunikat błędu jest wysyłany do dashboardów przez WebSocket. Choć sam komunikat jest generyczny, logowany wyjątek (logger.error) może zawierać wrażliwe informacje o infrastrukturze (adresy URL, tokeny itp.).
+    Naprawa : Upewnij się, że logi błędów nie zawierają wrażliwych danych konfiguracyjnych. Rozważ filtrowanie wrażliwych informacji z obiektów wyjątków przed ich logowaniem.
+
+[31] ŚREDNI — CWE-532 — Information Exposure Through Log Files
+    Plik    : central/exchange.py (linia 91)
+    Opis    : Adres e-mail odbiorcy jest logowany w postaci jawnej. W zależności od polityki ochrony danych (np. RODO), adresy e-mail mogą stanowić dane osobowe, których nie powinno się przechowywać w logach bez odpowiednich zabezpieczeń.
+    Naprawa : Zamaskuj adres e-mail w logach (np. j***@example.com) lub ustaw odpowiedni poziom logowania, aby dane osobowe nie trafiały do logów produkcyjnych.
+
+[32] NISKI — CWE-295 — Improper Certificate Validation
+    Plik    : central/exchange.py (linia 35)
+    Opis    : Klient httpx jest tworzony z domyślnymi ustawieniami. Choć domyślnie weryfikacja TLS jest włączona, brak jawnego potwierdzenia verify=True oznacza, że przyszłe zmiany konfiguracji lub globalnego kontekstu mogą wyłączyć weryfikację certyfikatów przy komunikacji z serwerami Microsoft.
+    Naprawa : Jawnie ustaw verify=True w konstruktorze httpx.AsyncClient, aby upewnić się, że weryfikacja certyfikatów TLS jest zawsze aktywna.
+
+[33] NISKI — CWE-400 — Uncontrolled Resource Consumption
+    Plik    : central/exchange.py (linia 79)
+    Opis    : Załącznik (attachment_bytes) jest kodowany base64 i umieszczany w pamięci jako ciąg znaków bez żadnego ograniczenia rozmiaru. Duże pliki mogą spowodować wyczerpanie pamięci lub przekroczenie limitu Graph API (4 MB dla inline attachments).
+    Naprawa : Dodaj walidację rozmiaru załącznika przed kodowaniem base64 (np. max 3 MB surowych danych) i dla większych plików użyj upload session API Microsoft Graph.
+
+[34] INFORMACJA — CWE-252 — Unchecked Return Value
+    Plik    : central/exchange.py (linia 40)
+    Opis    : Wartość tokenu pobierana jest z odpowiedzi JSON bez sprawdzenia, czy klucz 'access_token' istnieje. Jeśli odpowiedź serwera będzie nieoczekiwana, zostanie rzucony nieczytelny KeyError zamiast opisowego komunikatu błędu.
+    Naprawa : Sprawdź istnienie klucza 'access_token' w odpowiedzi i rzuć opisowy wyjątek RuntimeError z informacją diagnostyczną, jeśli klucz jest nieobecny.
+
+[35] ŚREDNI — CWE-798 (Hard-coded / Pre-hashed Credential)
+    Plik    : central/auth.py (linia 42)
+    Opis    : Hasło administratora jest haszowane raz przy imporcie modułu (_HASHED_PASSWORD). Oznacza to, że zmiana zmiennej środowiskowej CT_PASSWORD po starcie aplikacji nie będzie uwzględniona bez restartu procesu. Ponadto, jeśli settings.CT_PASSWORD ma domyślną, słabą wartość, ta sama wartość będzie używana przez cały czas życia procesu.
+    Naprawa : Pobieraj i weryfikuj hasło dynamicznie lub przynajmniej udokumentuj konieczność restartu po zmianie hasła. Upewnij się, że CT_PASSWORD nie ma domyślnej słabej wartości i jest walidowane przy starcie.
+
+[36] ŚREDNI — CWE-319 / Token w query param WebSocket
+    Plik    : central/auth.py (linia 164)
+    Opis    : W verify_dashboard_ws token sesji może być przekazany jako parametr zapytania (?token=). Tokeny w URL-ach są logowane przez serwery proxy, przeglądarkowe history, logi serwera i nagłówki Referer, co zwiększa ryzyko wycieku poświadczeń.
+    Naprawa : Usuń fallback na query_params.get('token') i wymuś przesyłanie tokenu wyłącznie przez httpOnly cookie lub nagłówki. Jeśli to niemożliwe, dodaj krótki czas życia tokenów używanych w query params i wyczyść je z logów.
+
+[37] ŚREDNI — CWE-319 / Agent token w query param WebSocket
+    Plik    : central/auth.py (linia 186)
+    Opis    : W verify_agent_ws token agenta może być przekazany jako parametr zapytania (?agent_token=), co naraża go na wyciek przez logi serwerów proxy, access-logi i historię przeglądarki.
+    Naprawa : Wymuś przesyłanie tokenu agenta wyłącznie przez nagłówek HTTP (x-agent-token). Usuń obsługę query_params.get('agent_token') lub ogranicz ją i upewnij się, że logi nie rejestrują tego parametru.
+
+[38] NISKI — CWE-532 (Information Exposure Through Log Files)
+    Plik    : central/auth.py (linia 197)
+    Opis    : Logowanie długości odrzuconego tokenu agenta (len(token)) może ujawnić informacje przydatne atakującemu przy atakach brute-force — pozwala ustalić, czy token został w ogóle przesłany i jakiej jest długości.
+    Naprawa : Ogranicz logowanie do samego faktu niepowodzenia uwierzytelnienia bez ujawniania szczegółów dotyczących przesłanego tokenu.
+
+[39] NISKI — CWE-1254 (Missing AGENT_SECRET_TOKEN fallback)
+    Plik    : central/auth.py (linia 147)
+    Opis    : Gdy AGENT_SECRET_TOKEN nie jest ustawiony, uwierzytelnianie agentów jest całkowicie wyłączone (require_agent_token zwraca None). W środowisku produkcyjnym pozwala to na nieautoryzowane połączenia agentów.
+    Naprawa : W trybie produkcyjnym wymuś obecność AGENT_SECRET_TOKEN — rzucaj wyjątek przy starcie aplikacji zamiast cicho wyłączać uwierzytelnianie.
+
+[40] INFORMACJA — CWE-916 (Bcrypt 72-byte truncation)
+    Plik    : central/auth.py (linia 35)
+    Opis    : Funkcja _b72 obcina hasła do 72 bajtów ze względu na ograniczenie bcrypt. Hasła dłuższe niż 72 bajty UTF-8 są efektywnie skracane, co zmniejsza entropię dla bardzo długich haseł.
+    Naprawa : Rozważ wstępne haszowanie hasła (np. SHA-256 + base64) przed przekazaniem do bcrypt, aby zachować pełną entropię długich haseł. Jest to popularne podejście stosowane m.in. przez Dropbox.
+
+[41] WYSOKI — CWE-1188 (Insecure Default Initialization of Resource)
+    Plik    : central/config.py (linia 15)
+    Opis    : Plik definiuje domyślne, niebezpieczne wartości dla CT_SECRET_KEY i CT_PASSWORD wprost w kodzie źródłowym. Chociaż istnieje funkcja warn_insecure_defaults(), która blokuje start z domyślnymi wartościami, to musi ona zostać jawnie wywołana — jeśli inny moduł zaimportuje `settings` bez wywołania tej funkcji, aplikacja będzie działać z niebezpiecznymi domyślnymi poświadczeniami.
+    Naprawa : Zamiast ustawiać domyślne niebezpieczne wartości, wymuszaj obecność zmiennych środowiskowych na etapie inicjalizacji klasy Settings (np. rzucaj wyjątek, jeśli CT_SECRET_KEY lub CT_PASSWORD nie są ustawione). Alternatywnie, wywołuj warn_insecure_defaults() automatycznie w __init__ klasy Settings.
+
+[42] ŚREDNI — CWE-256 (Plaintext Storage of a Password)
+    Plik    : central/config.py (linia 34)
+    Opis    : Hasła i sekrety (CT_PASSWORD, CT_SECRET_KEY, SMTP_PASSWORD, EXCHANGE_CLIENT_SECRET, LDAP_BIND_PASSWORD, AGENT_SECRET_TOKEN) są przechowywane jako zwykły tekst w zmiennych środowiskowych i w pamięci obiektu Settings. Nie ma żadnego szyfrowania ani mechanizmu vault.
+    Naprawa : Rozważ integrację z menedżerem sekretów (np. HashiCorp Vault, AWS Secrets Manager, Azure Key Vault) zamiast przechowywania poufnych danych jako zmiennych środowiskowych w plaintext. Na minimum ogranicz uprawnienia dostępu do pliku .env.
+
+[43] ŚREDNI — CWE-319 (Cleartext Transmission of Sensitive Information)
+    Plik    : central/config.py (linia 61)
+    Opis    : Domyślna konfiguracja LDAP używa portu 389 bez SSL (LDAP_USE_SSL=false) i bez TLS (LDAP_USE_TLS=false). Oznacza to, że poświadczenia LDAP (LDAP_BIND_PASSWORD) mogą być przesyłane w postaci jawnej przez sieć.
+    Naprawa : Zmień domyślne wartości na LDAP_USE_SSL=true lub LDAP_USE_TLS=true, aby wymuszać szyfrowaną komunikację z serwerem LDAP. Alternatywnie dodaj ostrzeżenie/blokadę uruchomienia, gdy LDAP jest włączony bez szyfrowania.
+
+[44] ŚREDNI — CWE-295 (Improper Certificate Validation)
+    Plik    : central/config.py (linia 28)
+    Opis    : Flaga AI_VERIFY_SSL może zostać ustawiona na false przez zmienną środowiskową, co wyłączy weryfikację certyfikatu TLS dla endpointu AI. W środowisku produkcyjnym pozwala to na ataki Man-in-the-Middle.
+    Naprawa : Dodaj logowanie ostrzeżenia lub blokadę startu, gdy AI_VERIFY_SSL=false w środowisku produkcyjnym. Rozważ usunięcie tej opcji i zawsze wymuszaj weryfikację SSL.
+
+[45] NISKI — CWE-90 (LDAP Injection)
+    Plik    : central/config.py (linia 68)
+    Opis    : Filtr LDAP (LDAP_USER_FILTER) zawiera placeholder {username}, który będzie podstawiany dynamicznie. Jeśli wartość username nie jest odpowiednio sanitizowana przed wstawieniem do filtra, może to prowadzić do LDAP Injection. Sam komentarz wspomina o 'sanitized login name', ale mechanizm sanitizacji nie jest widoczny w tym pliku.
+    Naprawa : Upewnij się, że w miejscu użycia LDAP_USER_FILTER wartość {username} jest odpowiednio escapowana za pomocą funkcji ldap.filter.escape_filter_chars() lub analogicznej, aby zapobiec LDAP Injection.
+
+[46] NISKI — CWE-798 (Use of Hard-coded Credentials)
+    Plik    : central/config.py (linia 22)
+    Opis    : Domyślny URL AI_BASE_URL ('https://ai.mgmt.pl/llama3/v1') jest zakodowany na stałe w kodzie. Ujawnia to wewnętrzną infrastrukturę organizacji.
+    Naprawa : Usuń domyślną wartość URL z kodu źródłowego lub zastąp ją pustym ciągiem, wymagając jawnego ustawienia zmiennej środowiskowej.
+
+[47] ŚREDNI — LDAP Filter Injection (partial)
+    Plik    : central/ldap_auth.py (linia 120)
+    Opis    : Metoda `_escape_ldap` poprawnie sanityzuje znaki specjalne LDAP, jednak filtr użytkownika (`user_filter`) jest budowany prostym `str.replace("{username}", safe_username)`. Jeśli administrator skonfiguruje `user_filter` bez nawiasów lub z wielokrotnym użyciem `{username}`, możliwe jest obejście filtra. Ponadto `str.replace` zamieni WSZYSTKIE wystąpienia `{username}`, co przy złośliwie skonstruowanym filtrze może prowadzić do nieoczekiwanego zachowania.
+    Naprawa : Rozważ walidację formatu `user_filter` przy zapisie konfiguracji — np. sprawdź, że zawiera dokładnie jedno wystąpienie `{username}` i jest poprawnym filtrem LDAP. Dodatkowo używaj `format_map` z dedykowaną klasą zamiast `str.replace`, aby mieć pełną kontrolę nad podstawianiem.
+
+[48] ŚREDNI — TLS Certificate Verification Disabled
+    Plik    : central/ldap_auth.py (linia 93)
+    Opis    : Gdy `tls_verify` jest ustawione na `False`, połączenie TLS/SSL z serwerem LDAP nie weryfikuje certyfikatu (`ssl.CERT_NONE`). To umożliwia ataki Man-in-the-Middle — atakujący może przechwycić dane logowania (w tym hasło konta serwisowego i hasła użytkowników).
+    Naprawa : W środowisku produkcyjnym zawsze wymuszaj `tls_verify=True`. Rozważ dodanie ostrzeżenia w GUI lub blokady zapisu konfiguracji z wyłączoną weryfikacją TLS w trybie produkcyjnym.
+
+[49] NISKI — Information Disclosure via Logging
+    Plik    : central/ldap_auth.py (linia 143)
+    Opis    : Nazwa użytkownika jest logowana w komunikatach informacyjnych i ostrzeżeniach. W przypadku dużego wolumenu logów lub ich niewłaściwego zabezpieczenia mogą wyciec informacje o próbach logowania konkretnych użytkowników, co ułatwia enumerację kont.
+    Naprawa : Rozważ ograniczenie logowania nazw użytkowników do poziomu DEBUG lub ich maskowanie w logach produkcyjnych. Upewnij się, że logi są przechowywane w bezpieczny sposób z odpowiednimi uprawnieniami dostępu.
+
+[50] NISKI — Empty Password Check Bypass
+    Plik    : central/ldap_auth.py (linia 112)
+    Opis    : Sprawdzenie pustego hasła (`if not password`) odrzuca puste ciągi znaków, ale nie chroni przed hasłami składającymi się wyłącznie z białych znaków. Niektóre serwery LDAP mogą traktować takie hasła jako anonimowe bindowanie (unauthenticated bind), co pozwala na obejście uwierzytelniania.
+    Naprawa : Dodaj `password = password.strip()` przed sprawdzeniem lub jawnie odrzucaj hasła składające się z samych białych znaków: `if not password or not password.strip(): return None`.
+
+[51] INFORMACJA — Broad Exception Handling
+    Plik    : central/ldap_auth.py (linia 62)
+    Opis    : Blok `try/except Exception` w `_get_ldap_settings` łapie wszystkie wyjątki i cicho przechodzi do fallbacku na zmienne środowiskowe. Może to ukryć poważne błędy konfiguracji bazy danych lub problemy z deszyfrowaniem sekretów.
+    Naprawa : Zawęź obsługę wyjątków do konkretnych typów (np. `SQLAlchemyError`, `ImportError`) lub loguj na poziomie ERROR zamiast WARNING, aby problemy z bazą danych były bardziej widoczne.
+
+[52] ŚREDNI — CWE-79 / Unsafe CSP with unsafe-inline
+    Plik    : central/main.py (linia 63)
+    Opis    : Polityka Content-Security-Policy zezwala na 'unsafe-inline' zarówno dla script-src jak i style-src. To osłabia ochronę przed atakami XSS, ponieważ atakujący może wstrzyknąć inline JavaScript lub CSS.
+    Naprawa : Usuń 'unsafe-inline' z script-src i style-src. Zamiast tego użyj nonce lub hash do oznaczania zaufanych inline skryptów i styli.
+
+[53] ŚREDNI — CWE-352 / CSRF cookie regeneration on every GET
+    Plik    : central/main.py (linia 230)
+    Opis    : Każde żądanie GET do '/' i '/{full_path:path}' generuje nowy token CSRF i nadpisuje ciasteczko. Atakujący może wymusić odwiedzenie dowolnej ścieżki (np. przez <img src>), co spowoduje nadpisanie tokena CSRF nową wartością, której atakujący nie zna — ale jednocześnie unieważni legalny token, co może prowadzić do problemów z użytecznością. Ponadto token nie jest powiązany z sesją użytkownika, co osłabia ochronę double-submit cookie.
+    Naprawa : Generuj token CSRF tylko raz (przy logowaniu lub pierwszym żądaniu, jeśli ciasteczko nie istnieje). Powiąż token CSRF z sesją użytkownika, np. podpisując go kluczem sesji.
+
+[54] ŚREDNI — CWE-20 / Insufficient input validation on terminal WebSocket
+    Plik    : central/main.py (linia 211)
+    Opis    : Dane przesyłane z terminala (msg.get('data'), msg.get('cols'), msg.get('rows')) z WebSocket są przekazywane do agenta bez walidacji typu ani rozmiaru. Złośliwy klient mógłby przesłać bardzo duże dane w polu 'data' lub nieprawidłowe typy w polach cols/rows wewnątrz pętli obsługi wiadomości (walidacja cols/rows dotyczy tylko początkowych parametrów query).
+    Naprawa : Waliduj typ i rozmiar pola 'data' (np. maksymalna długość). Sprawdzaj typy i zakresy pól cols/rows również w wiadomościach resize wewnątrz pętli, analogicznie do walidacji parametrów query.
+
+[55] NISKI — CWE-352 / CSRF exempt login endpoint
+    Plik    : central/main.py (linia 92)
+    Opis    : Endpoint /api/auth/login jest wyłączony z ochrony CSRF. Choć logowanie bez CSRF jest powszechną praktyką, może umożliwić atak 'login CSRF' — atakujący może zalogować ofiarę na swoje konto.
+    Naprawa : Rozważ dodanie ochrony CSRF również dla endpointu logowania lub zastosuj inne mechanizmy obrony, np. sprawdzanie nagłówka Origin/Referer.
+
+[56] NISKI — CWE-200 / Verbose error logging
+    Plik    : central/main.py (linia 156)
+    Opis    : Logi błędów agenta i dashboardu WebSocket mogą zawierać wrażliwe informacje z wyjątków (np. tokeny, dane połączenia), które trafiają do logów serwera.
+    Naprawa : Ogranicz logowanie wyjątków do bezpiecznych komunikatów. Nie loguj pełnych obiektów wyjątków w środowisku produkcyjnym lub filtruj wrażliwe dane przed logowaniem.
+
+[57] NISKI — CWE-1021 / Incomplete frame-ancestors vs X-Frame-Options
+    Plik    : central/main.py (linia 74)
+    Opis    : Nagłówek X-Frame-Options: DENY jest ustawiony razem z CSP frame-ancestors 'none'. Choć oba blokują osadzanie w ramkach, X-Frame-Options jest przestarzały i może być ignorowany przez nowoczesne przeglądarki na rzecz CSP.
+    Naprawa : To jest drobna niekonsekwencja. Można usunąć X-Frame-Options i polegać wyłącznie na CSP frame-ancestors 'none', ale zachowanie obu nie jest szkodliwe.
+
+[58] INFORMACJA — CWE-489 / Duplicate import
+    Plik    : central/main.py (linia 148)
+    Opis    : Moduł 'json' jest importowany ponownie wewnątrz funkcji agent_ws (linia 148) oraz dashboard_ws, mimo że jest już zaimportowany na poziomie modułu. To nie jest podatność, ale wskazuje na nieporządek w kodzie.
+    Naprawa : Usuń zduplikowane importy wewnątrz funkcji, ponieważ moduł json jest już zaimportowany globalnie.
+
+[59] ŚREDNI — In-Memory Rate Limiting (no persistence/shared state)
+    Plik    : central/rate_limit.py (linia 22)
+    Opis    : Dane rate-limitingu przechowywane są w pamięci procesu (zmienne globalne). W środowisku wieloprocesowym (np. gunicorn z wieloma workerami, wiele instancji za load-balancerem) każdy proces ma osobny stan — atakujący może rozłożyć próby na różne workery i skutecznie ominąć limity. Ponadto restart procesu zeruje wszystkie liczniki.
+    Naprawa : Użyj współdzielonego backendu do przechowywania stanów rate-limitingu, np. Redis z TTL (biblioteki takie jak slowapi / limits), co zapewni spójność między workerami i instancjami.
+
+[60] NISKI — Denial of Service — unbounded list growth per key
+    Plik    : central/rate_limit.py (linia 70)
+    Opis    : Funkcja record_failed_attempt sprawdza liczbę kluczy (_MAX_TRACKED_IPS), ale nie ogranicza liczby wpisów (timestamps) wewnątrz listy dla pojedynczego klucza. Atakujący wysyłający tysiące requestów z jednego IP (lub na jedną nazwę użytkownika) może spowodować nieograniczony wzrost listy timestampów dla tego klucza, ponieważ zapis następuje przed oczyszczeniem starych wpisów.
+    Naprawa : Dodaj limit rozmiaru listy na klucz (np. max 2×_IP_MAX) lub wykonuj czyszczenie starych wpisów (pruning) przed dodaniem nowego timestampa w record_failed_attempt.
+
+[61] NISKI — Information Disclosure — timing / username enumeration
+    Plik    : central/rate_limit.py (linia 55)
+    Opis    : Funkcja check_username_lockout natychmiast zwraca dla użytkownika admina (CT_USERNAME), ale dla innych użytkowników wykonuje dodatkowe obliczenia. Różnica w czasie odpowiedzi może pozwolić atakującemu na enumerację nazwy konta administratora.
+    Naprawa : Wykonuj te same operacje filtrowania listy również dla konta admina, jedynie pomijając rzucanie wyjątku, aby wyrównać czas odpowiedzi (constant-time branch).
+
+[62] INFORMACJA — Race Condition (thread safety)
+    Plik    : central/rate_limit.py (linia 22)
+    Opis    : Zmienne _failed_ip i _failed_user (defaultdict) są modyfikowane z wielu potencjalnych wątków/asynchronicznych tasków bez synchronizacji. W środowisku asyncio FastAPI z wieloma współbieżnymi requestami mogą wystąpić niespójności danych (np. utrata wpisów lub podwójne odczyty).
+    Naprawa : Zastosuj asyncio.Lock lub threading.Lock do ochrony sekcji krytycznych przy odczycie i zapisie do słowników rate-limitingu, lub przenieś logikę do atomowych operacji w Redis.
+
+[63] ŚREDNI — SQL Injection via string formatting
+    Plik    : central/models.py (linia 261)
+    Opis    : Funkcja `_add_column_if_missing` buduje zapytania SQL za pomocą f-stringów (`f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"`). Choć `table` i `column` są walidowane regexem `_IDENT_RE`, parametr `col_def` nie jest w żaden sposób walidowany ani sanityzowany. Złośliwa wartość `col_def` mogłaby wstrzyknąć dodatkowe polecenia SQL.
+    Naprawa : Dodaj walidację parametru `col_def` — np. ogranicz go do dozwolonych wzorców (typ danych + DEFAULT + wartość) lub zastosuj białą listę dozwolonych definicji kolumn. Najlepiej przenieś migracje do dedykowanego narzędzia (np. Alembic).
+
+[64] ŚREDNI — Weak Key Derivation (KDF)
+    Plik    : central/models.py
+    Opis    : Na podstawie kodu widać użycie Fernet do szyfrowania sekretów i tokenów. Jeśli klucz szyfrujący jest derywowany z `settings` bez odpowiedniej funkcji KDF (np. PBKDF2, scrypt, Argon2), a jedynie z prostego hashowania lub bezpośrednio z hasła/sekretu, siła szyfrowania jest osłabiona. Dodatkowo brak widocznej rotacji kluczy szyfrowania.
+    Naprawa : Upewnij się, że klucz Fernet jest generowany kryptograficznie bezpiecznym generatorem (`Fernet.generate_key()`) lub derywowany z hasła za pomocą silnej KDF (PBKDF2 z ≥600 000 iteracji, scrypt lub Argon2). Zaimplementuj mechanizm rotacji kluczy.
+
+[65] NISKI — Hardcoded Singleton Pattern for Secrets
+    Plik    : central/models.py
+    Opis    : Modele `AgentToken` i `LdapConfig` używają wzorca singleton (id=1) co może prowadzić do problemów z integralnością danych jeśli wiele procesów jednocześnie modyfikuje te rekordy, oraz utrudnia audyt zmian konfiguracji.
+    Naprawa : Rozważ dodanie wersjonowania konfiguracji lub mechanizmu blokady optymistycznej (np. pole `version`) aby zapobiec wyścigom przy jednoczesnych modyfikacjach.
+
+[66] NISKI — Information Exposure through Error Handling
+    Plik    : central/models.py (linia 261)
+    Opis    : W funkcji `_add_column_if_missing` wyjątki z `cur.execute()` są łapane ogólnym `except Exception` i logowane z komunikatem zawierającym szczegóły błędu. Może to ujawnić informacje o strukturze bazy danych w logach.
+    Naprawa : Loguj błędy migracji na poziomie DEBUG zamiast WARNING w środowisku produkcyjnym, lub ogranicz informacje wypisywane w komunikatach do minimum niezbędnego do diagnostyki.
+
+[67] NISKI — SQLite check_same_thread=False
+    Plik    : central/models.py (linia 240)
+    Opis    : Parametr `check_same_thread=False` wyłącza sprawdzanie wątków SQLite. W środowisku wielowątkowym (np. FastAPI z wieloma workerami) może to prowadzić do uszkodzenia bazy danych lub niespójności danych przy jednoczesnych zapisach.
+    Naprawa : W środowisku produkcyjnym rozważ migrację na PostgreSQL lub MySQL. Jeśli SQLite jest wymagane, upewnij się, że dostęp do bazy jest odpowiednio synchronizowany (np. tryb WAL, serializacja zapisów).
+
+[68] INFORMACJA — Incomplete Source File
+    Plik    : central/models.py
+    Opis    : Plik jest ucięty (widać `from datetime imp` na końcu), co uniemożliwia pełną analizę bezpieczeństwa — w szczególności funkcji `encrypt_secret`, `decrypt_secret`, `migrate_secrets_to_fernet` oraz `hash_password`, które są kluczowe z perspektywy bezpieczeństwa.
+    Naprawa : Dokonaj pełnej analizy bezpieczeństwa po uzyskaniu kompletnego pliku źródłowego, w szczególności funkcji kryptograficznych i uwierzytelniających.
+
+[69] ŚREDNI — CWE-352 (CSRF - Incomplete Double-Submit Pattern)
+    Plik    : central/routers/auth.py (linia 137)
+    Opis    : Token CSRF jest ustawiany jako ciasteczko odczytywalne przez JavaScript, ale nigdzie w kodzie nie widać walidacji tego tokenu po stronie serwera. Sam double-submit cookie pattern wymaga porównania wartości z ciasteczka z wartością przesłaną w nagłówku/formularzu żądania. Bez walidacji serwerowej mechanizm CSRF jest nieskuteczny.
+    Naprawa : Dodaj middleware lub zależność (Depends), która przy każdym żądaniu modyfikującym stan (POST/PUT/DELETE) porównuje wartość ciasteczka csrf_token z wartością przesłaną w nagłówku X-CSRF-Token. Odrzucaj żądania, w których wartości się nie zgadzają.
+
+[70] NISKI — CWE-200 (Information Exposure via Timing Attack)
+    Plik    : central/routers/auth.py (linia 96)
+    Opis    : Weryfikacja hasła przebiega sekwencyjnie: najpierw sprawdzane jest hasło admina środowiskowego, potem użytkownika DB, potem LDAP. Jeśli verify_password nie korzysta z porównania o stałym czasie, atakujący może na podstawie różnic czasowych rozróżnić, czy nazwa użytkownika istnieje w danym źródle.
+    Naprawa : Upewnij się, że wszystkie funkcje weryfikacji hasła (verify_password, verify_db_password) używają porównań o stałym czasie (np. hmac.compare_digest). Rozważ zawsze wykonywanie pełnej operacji haszowania nawet gdy użytkownik nie istnieje, aby ujednolicić czas odpowiedzi.
+
+[71] NISKI — CWE-799 (Improper Control of Interaction Frequency)
+    Plik    : central/routers/auth.py (linia 88)
+    Opis    : Rate limiting jest wykonywany, ale nie widać mechanizmu blokowania na poziomie IP w połączeniu z username — jeśli check_login_rate_limit bazuje tylko na IP klienta, atakujący korzystający z wielu adresów IP może obejść ograniczenie. Ponadto _client_ip używa request.client.host, co może zwracać adres proxy zamiast rzeczywistego klienta.
+    Naprawa : Upewnij się, że _client_ip odczytuje nagłówek X-Forwarded-For lub X-Real-IP (z zaufanego proxy) zamiast polegać wyłącznie na request.client.host. Zastosuj rate limiting zarówno per-IP, jak i per-username niezależnie.
+
+[72] INFORMACJA — CWE-209 (Information Exposure Through Error Message)
+    Plik    : central/routers/auth.py (linia 113)
+    Opis    : Komunikat błędu 'Nieprawidłowa nazwa użytkownika lub hasło' jest poprawny i nie ujawnia, które z danych jest błędne. To dobra praktyka — brak podatności, jedynie informacja.
+    Naprawa : Brak dodatkowych działań wymaganych — obecna implementacja jest poprawna.
+
+[73] NISKI — Information Disclosure via Audit Log
+    Plik    : central/routers/secrets.py (linia 114)
+    Opis    : W logach audytowych przy operacji 'secret_revealed' zapisywana jest nazwa sekretu wraz z jego identyfikatorem. Choć sam odszyfrowany tekst nie jest logowany, szczegółowe informacje o tym, który sekret został odsłonięty, mogą stanowić wyciek informacji w przypadku dostępu do logów przez osoby nieuprawnione.
+    Naprawa : Rozważ ograniczenie szczegółowości logów audytowych — loguj jedynie identyfikator sekretu bez nazwy, lub upewnij się, że logi audytowe są odpowiednio zabezpieczone.
+
+[74] NISKI — Missing Rate Limiting
+    Plik    : central/routers/secrets.py (linia 107)
+    Opis    : Endpoint /api/secrets/{id}/reveal zwraca odszyfrowaną wartość sekretu i nie posiada żadnego mechanizmu ograniczania częstotliwości zapytań (rate limiting). Administrator z ważnym tokenem może masowo pobierać wszystkie sekrety bez ograniczeń.
+    Naprawa : Dodaj mechanizm rate limiting na endpoint reveal, np. za pomocą middleware slowapi lub własnego limitu zapytań, aby ograniczyć nadużycia w przypadku skompromitowanego konta administratora.
+
+[75] NISKI — Improper Input Validation
+    Plik    : central/routers/secrets.py (linia 96)
+    Opis    : W endpoincie update_secret warunek 'if body.value' traktuje pusty string jako brak aktualizacji, ale nie stosuje strip() — wartość składająca się z samych spacji zostanie zaszyfrowana i zapisana. Ponadto opis (description) jest zawsze nadpisywany, nawet jeśli nie został podany (domyślnie pusty string), co może przypadkowo wyczyścić istniejący opis.
+    Naprawa : Dodaj walidację z użyciem strip() dla body.value oraz rozważ użycie Optional[str] = None dla pól description i value, aby rozróżnić brak wartości od pustego stringa.
+
+[76] ŚREDNI — CWE-920 Improper Restriction of Power Consumption (Uncontrolled Background Task)
+    Plik    : central/routers/analysis.py (linia 103)
+    Opis    : Użycie asyncio.create_task(_run()) bez przechowywania referencji do zadania ani ograniczania liczby równoległych zadań. Atakujący może wielokrotnie wywoływać POST /api/analyze, tworząc nieograniczoną liczbę równoczesnych zadań analizy AI, co prowadzi do wyczerpania zasobów serwera (DoS).
+    Naprawa : Wprowadź ograniczenie liczby równoległych analiz (np. asyncio.Semaphore lub kolejkę zadań). Przechowuj referencje do utworzonych tasków, aby uniknąć ich cichego garbage-collection.
+
+[77] ŚREDNI — CWE-209 Generation of Error Message Containing Sensitive Information
+    Plik    : central/routers/analysis.py (linia 88)
+    Opis    : W odpowiedzi HTTP 503 zwracany jest agent_id podany przez użytkownika: f"Agent '{agent_id}' jest offline.". Może to ułatwiać enumerację identyfikatorów agentów i potwierdzanie ich istnienia.
+    Naprawa : Zwracaj ogólny komunikat błędu bez powtarzania danych wejściowych użytkownika, np. 'Agent jest offline lub nie istnieje'.
+
+[78] ŚREDNI — CWE-311 Missing Encryption of Sensitive Data (SMTP)
+    Plik    : central/routers/analysis.py (linia 258)
+    Opis    : Funkcja wysyłki SMTP (_send_email) nie jest widoczna w całości, ale konfiguracja bazuje na settings.SMTP_HOST bez widocznej weryfikacji, czy połączenie używa TLS/STARTTLS. Jeśli SMTP jest konfigurowane bez szyfrowania, dane uwierzytelniające i treść raportu mogą być przesyłane jawnym tekstem.
+    Naprawa : Upewnij się, że połączenie SMTP wymusza TLS (SMTP_SSL lub STARTTLS) i weryfikuje certyfikaty serwera. Dodaj walidację konfiguracji SMTP przy starcie aplikacji.
+
+[79] NISKI — CWE-117 Improper Output Neutralization for Logs
+    Plik    : central/routers/analysis.py (linia 85)
+    Opis    : Wartości agent_id i container_name pochodzące od użytkownika są wstawiane bezpośrednio do komunikatów logów (logger.warning, logger.error). Atakujący może wstrzyknąć znaki nowej linii lub sekwencje ANSI, fałszując wpisy w logach (log injection/log forging).
+    Naprawa : Sanityzuj dane wejściowe przed logowaniem — usuń znaki nowej linii (\n, \r) i inne znaki sterujące z agent_id oraz container_name przed ich użyciem w logach.
+
+[80] NISKI — CWE-400 Uncontrolled Resource Consumption
+    Plik    : central/routers/analysis.py (linia 135)
+    Opis    : Parametr limit w GET /api/analyses pozwala na pobranie do 200 rekordów jednocześnie. Wielokrotne równoczesne żądania z limit=200 mogą obciążać bazę danych.
+    Naprawa : Rozważ dodanie mechanizmu rate-limiting na endpoincie oraz paginacji opartej na kursorze zamiast prostego limitu.
+
+[81] INFORMACJA — CWE-477 Use of Obsolete Function
+    Plik    : central/routers/analysis.py (linia 30)
+    Opis    : Moduł 're' jest importowany dwukrotnie — raz jako 're' (linia 14) i raz jako '_re' (linia 30). Jest to nadmiarowy import, który może wprowadzać zamieszanie w kodzie.
+    Naprawa : Usuń jeden z duplikatów importu modułu re i ujednolić nazewnictwo.
+
+[82] NISKI — Information Disclosure
+    Plik    : central/routers/servers.py (linia 94)
+    Opis    : Identyfikator agenta podany przez użytkownika jest bezpośrednio wstawiany do komunikatu błędu HTTP 404 bez sanityzacji. Może to ułatwić ataki typu reflected content injection lub ułatwić phishing, choć FastAPI domyślnie zwraca JSON, co ogranicza ryzyko XSS.
+    Naprawa : Nie umieszczaj danych wejściowych użytkownika bezpośrednio w komunikatach błędów lub zastosuj sanityzację/ograniczenie długości identyfikatora agenta (np. walidacja regex w ścieżce).
+
+[83] NISKI — Insufficient Input Validation
+    Plik    : central/routers/servers.py (linia 84)
+    Opis    : Parametr agent_id w ścieżce URL nie ma żadnej walidacji formatu — przyjmuje dowolny ciąg znaków. Brak walidacji może prowadzić do prób path traversal lub injection w downstream systemach (np. WebSocket manager, baza danych).
+    Naprawa : Dodaj walidację agent_id za pomocą wyrażenia regularnego w definicji ścieżki (np. Path(..., regex='^[a-zA-Z0-9_-]+$')) lub w funkcji _check_agent_access.
+
+[84] NISKI — Insufficient Input Validation
+    Plik    : central/routers/servers.py (linia 113)
+    Opis    : Parametr container_name w ścieżce URL nie jest walidowany. Złośliwa wartość mogłaby zostać przekazana dalej do agenta, potencjalnie umożliwiając command injection po stronie agenta, jeśli agent nie sanityzuje danych.
+    Naprawa : Zastosuj walidację nazwy kontenera wyrażeniem regularnym (np. '^[a-zA-Z0-9][a-zA-Z0-9_.-]+$') przed przekazaniem do agenta.
+
+[85] NISKI — Self-Signed Certificate Usage
+    Plik    : nginx/generate-cert.sh (linia 18)
+    Opis    : Skrypt generuje certyfikat samopodpisany (self-signed), który nie jest zaufany przez przeglądarki ani klientów HTTP. Może to prowadzić do ataków Man-in-the-Middle, jeśli użytkownicy przyzwyczają się do ignorowania ostrzeżeń o certyfikatach. Jednakże skrypt jest zaprojektowany jako rozwiązanie tymczasowe z możliwością podmontowania własnego certyfikatu.
+    Naprawa : W środowisku produkcyjnym należy używać certyfikatów wystawionych przez zaufane CA (np. Let's Encrypt). Skrypt powinien wyświetlać wyraźne ostrzeżenie, że certyfikat samopodpisany jest przeznaczony wyłącznie do celów deweloperskich.
+
+[86] INFORMACJA — Stderr Suppression
+    Plik    : nginx/generate-cert.sh (linia 23)
+    Opis    : Przekierowanie stderr do /dev/null (2>/dev/null) ukrywa potencjalne błędy generowania certyfikatu przez OpenSSL, co może utrudniać diagnostykę problemów w przypadku niepowodzenia operacji.
+    Naprawa : Zamiast przekierowywać stderr do /dev/null, należy logować błędy do pliku lub warunkować dalsze wykonanie skryptu sprawdzeniem kodu wyjścia polecenia openssl (np. dodać 'set -e' lub sprawdzenie '$?').
+
+[87] INFORMACJA — Missing Error Handling
+    Plik    : nginx/generate-cert.sh (linia 18)
+    Opis    : Skrypt nie sprawdza, czy polecenie openssl zakończyło się sukcesem. W przypadku błędu (np. brak openssl w obrazie) skrypt będzie kontynuował działanie, a nginx może nie wystartować z powodu brakujących plików certyfikatu.
+    Naprawa : Dodać sprawdzenie kodu wyjścia openssl oraz użyć 'set -e' na początku skryptu, aby automatycznie przerywać wykonanie w przypadku błędów.
+
+[88] ŚREDNI — Cleartext HTTP Exposure
+    Plik    : docker-compose.yml (linia 33)
+    Opis    : Port 80 jest wystawiony publicznie, co może umożliwić komunikację nieszyfrowaną (HTTP). Jeśli nginx nie wymusza przekierowania na HTTPS, dane mogą być przesyłane bez szyfrowania.
+    Naprawa : Upewnij się, że konfiguracja nginx wymusza przekierowanie HTTP→HTTPS (301). Rozważ usunięcie portu 80 jeśli nie jest potrzebny lub ogranicz go tylko do przekierowań.
+
+[89] NISKI — Excessive Capabilities
+    Plik    : docker-compose.yml (linia 42)
+    Opis    : Serwis nginx posiada dodane uprawnienia CHOWN, SETUID i SETGID. O ile NET_BIND_SERVICE jest uzasadnione dla bindowania portów poniżej 1024, to SETUID/SETGID i CHOWN zwiększają powierzchnię ataku w przypadku kompromitacji kontenera.
+    Naprawa : Rozważ uruchomienie nginx jako użytkownik nieuprzywilejowany na portach > 1024 i mapowanie ich na porty 80/443 na hoście, co pozwoli usunąć SETUID, SETGID i CHOWN. Ewentualnie użyj rootless nginx.
+
+[90] NISKI — Missing Read-Only Filesystem
+    Plik    : docker-compose.yml (linia 28)
+    Opis    : Kontener nginx nie ma ustawionej opcji 'read_only: true', w przeciwieństwie do kontenera dockermind-web. Brak systemu plików tylko do odczytu zwiększa ryzyko modyfikacji plików w kontenerze w przypadku jego kompromitacji.
+    Naprawa : Dodaj 'read_only: true' do serwisu nginx i zamontuj tmpfs dla katalogów wymagających zapisu (np. /var/cache/nginx, /var/run).
+
+[91] INFORMACJA — Internal Network Exposure
+    Plik    : docker-compose.yml (linia 7)
+    Opis    : Wpis extra_hosts z hardkodowanym adresem IP 192.168.10.57 wiąże konfigurację z konkretną infrastrukturą sieciową. Zmiana infrastruktury wymaga modyfikacji pliku compose.
+    Naprawa : Rozważ przeniesienie tego mapowania do zmiennej środowiskowej lub użyj wewnętrznego DNS zamiast hardkodowanych adresów IP.
+
+[92] INFORMACJA — Missing Resource Limits
+    Plik    : docker-compose.yml (linia 3)
+    Opis    : Żaden z kontenerów nie ma zdefiniowanych limitów zasobów (CPU, pamięć). W przypadku ataku typu denial-of-service kontener może zużyć wszystkie zasoby hosta.
+    Naprawa : Dodaj limity zasobów za pomocą sekcji 'deploy.resources.limits' lub 'mem_limit'/'cpus' dla każdego serwisu.
+
+[93] INFORMACJA — Missing Health Check
+    Plik    : docker-compose.yml (linia 3)
+    Opis    : Żaden z serwisów nie posiada zdefiniowanego healthcheck. Brak healthcheck utrudnia automatyczne wykrywanie i reagowanie na awarie kontenerów.
+    Naprawa : Dodaj sekcję 'healthcheck' do obu serwisów, np. sprawdzając dostępność endpointu HTTP.
+
+[94] INFORMACJA — Missing Logging Configuration
+    Plik    : docker-compose.yml (linia 3)
+    Opis    : Nie zdefiniowano konfiguracji logowania dla kontenerów. Domyślny sterownik logów może prowadzić do niekontrolowanego wzrostu plików logów.
+    Naprawa : Dodaj sekcję 'logging' z limitem rozmiaru i ilości plików logów (np. json-file z max-size i max-file).
+
+[95] ŚREDNI — CWE-209: Information Exposure Through Error Messages
+    Plik    : central/routers/settings.py
+    Opis    : Ogólne przechwytywanie wyjątków (except Exception) w endpointach create_srv_group i create_usr_group może ukrywać nieoczekiwane błędy i zwracać mylące komunikaty. Choć nie ujawnia bezpośrednio stacktrace'u, maskuje prawdziwe przyczyny błędów, co utrudnia diagnostykę i może ukrywać inne problemy bezpieczeństwa.
+    Naprawa : Przechwytuj tylko konkretne wyjątki (np. IntegrityError z SQLAlchemy) zamiast ogólnego Exception. Loguj szczegóły błędu po stronie serwera, a użytkownikowi zwracaj jedynie ogólny komunikat.
+
+[96] ŚREDNI — CWE-862: Missing Authorization (brak logowania audytu)
+    Plik    : central/routers/settings.py
+    Opis    : Krytyczne operacje takie jak tworzenie/usuwanie użytkowników, zmiana hasła, zarządzanie grupami nie są rejestrowane w logach audytu (brak wywołań log_audit). Mimo że funkcja log_audit jest zaimportowana, nie jest nigdzie używana w tym pliku. Utrudnia to wykrywanie nieautoryzowanych działań.
+    Naprawa : Dodaj wywołania log_audit() po każdej operacji modyfikującej stan: tworzenie/usuwanie użytkowników, zmiana hasła, zarządzanie grupami serwerów i użytkowników.
+
+[97] ŚREDNI — CWE-307: Improper Restriction of Excessive Authentication Attempts
+    Plik    : central/routers/settings.py (linia 95)
+    Opis    : Endpoint zmiany hasła nie implementuje żadnego mechanizmu rate-limiting. Atakujący z ważnym tokenem JWT może wielokrotnie próbować odgadnąć aktualne hasło użytkownika (brute-force na polu current_password).
+    Naprawa : Dodaj rate-limiting na endpoint /api/settings/password — np. ograniczenie do 5 prób na minutę na użytkownika. Można użyć slowapi lub własnego middleware.
+
+[98] NISKI — CWE-20: Improper Input Validation
+    Plik    : central/routers/settings.py (linia 131)
+    Opis    : Nazwa użytkownika (body.username) nie jest walidowana pod kątem dozwolonych znaków. Atakujący może utworzyć użytkownika ze specjalnymi znakami, spacjami, znakami kontrolnymi itp., co może prowadzić do problemów z logowaniem, atakami homograficznymi lub niespójnościami w systemie.
+    Naprawa : Dodaj walidację nazwy użytkownika za pomocą wyrażenia regularnego, np. ^[a-zA-Z0-9._@-]{1,64}$, oraz ogranicz długość nazwy.
+
+[99] NISKI — CWE-20: Improper Input Validation
+    Plik    : central/routers/settings.py (linia 225)
+    Opis    : Lista members w MembersUpdate nie jest walidowana — brak ograniczenia długości listy, ani walidacji poszczególnych wartości. Atakujący z uprawnieniami admina mógłby przesłać bardzo dużą listę, powodując problemy wydajnościowe.
+    Naprawa : Dodaj walidację: ogranicz maksymalną liczbę elementów listy members oraz waliduj format każdego elementu (np. regex na hostname/IP).
+
+[100] INFORMACJA — CWE-477: Use of Obsolete Function (import w ciele funkcji)
+    Plik    : central/routers/settings.py (linia 93)
+    Opis    : Import modułów auth (verify_password, verify_db_password) odbywa się wewnątrz funkcji change_password, co sugeruje cykliczną zależność między modułami. Nie jest to bezpośrednia podatność, ale wskazuje na problemy architektoniczne, które mogą utrudniać audyt bezpieczeństwa.
+    Naprawa : Przeorganizuj importy, aby uniknąć cyklicznych zależności — np. przenieś wspólne funkcje do osobnego modułu pomocniczego.
+
+[101] ŚREDNI — CWE-400 - Uncontrolled Resource Consumption
+    Plik    : central/websocket_manager.py
+    Opis    : Brak limitu rozmiaru wiadomości WebSocket od agentów. Metoda handle_agent_message przyjmuje surowy tekst (raw: str) i parsuje go jako JSON bez walidacji rozmiaru. Złośliwy agent może wysłać bardzo dużą wiadomość, co doprowadzi do wyczerpania pamięci.
+    Naprawa : Wprowadź limit rozmiaru wiadomości WebSocket (np. max 1-10 MB) na poziomie konfiguracji serwera WebSocket lub sprawdzaj len(raw) przed wywołaniem json.loads().
+
+[102] ŚREDNI — CWE-290 - Agent Spoofing / Impersonation
+    Plik    : central/websocket_manager.py (linia 95)
+    Opis    : Identyfikator agenta (agent_id) jest generowany wyłącznie z nazwy agenta przesłanej w payloadzie rejestracyjnym (agent_name/hostname). Złośliwy klient może podać dowolną nazwę, przejąć istniejący agent_id i zastąpić prawidłowe połączenie agenta swoim, rozłączając poprzednie futures i przejmując kontrolę.
+    Naprawa : Wprowadź mechanizm uwierzytelniania agentów — np. tokeny API, certyfikaty klienta TLS lub hasła współdzielone — i weryfikuj tożsamość przed akceptacją rejestracji.
+
+[103] ŚREDNI — CWE-362 - Race Condition (TOCTOU)
+    Plik    : central/websocket_manager.py (linia 180)
+    Opis    : W metodzie request_from_agent sprawdzenie czy conn istnieje i czy conn.ws nie jest None odbywa się pod lockiem, ale późniejsze operacje (dodanie do pending_requests, send_text) odbywają się już poza lockiem. Między tymi operacjami agent może się rozłączyć, co prowadzi do wyścigu.
+    Naprawa : Rozszerz sekcję krytyczną lub zastosuj dodatkową synchronizację, aby operacje sprawdzenia stanu agenta i wysłania wiadomości były atomowe.
+
+[104] NISKI — CWE-532 - Information Exposure Through Log Files
+    Plik    : central/websocket_manager.py (linia 107)
+    Opis    : Logi zawierają informacje o rejestracji agenta, w tym adres IP i pełny payload info, co może ujawnić wrażliwe dane infrastrukturalne w logach.
+    Naprawa : Ogranicz logowanie wrażliwych danych — loguj tylko niezbędne identyfikatory, a szczegółowe informacje zapisuj na poziomie DEBUG.
+
+[105] NISKI — CWE-770 - Missing Input Validation on Agent Data
+    Plik    : central/websocket_manager.py (linia 134)
+    Opis    : Dane kontenerów przychodzące od agenta (msg.get('containers', [])) nie są walidowane pod kątem schematu ani typu. Złośliwy agent może przesłać dowolne struktury danych, które następnie są broadcastowane do dashboardów i przetwarzane w tle.
+    Naprawa : Wprowadź walidację schematu danych przychodzących od agentów (np. za pomocą Pydantic) przed dalszym przetwarzaniem i rozgłaszaniem.
+
+[106] NISKI — CWE-754 - Improper Exception Handling
+    Plik    : central/websocket_manager.py (linia 158)
+    Opis    : W _bg_process przechwytywany jest ogólny Exception, co może maskować poważne błędy i utrudniać debugowanie. Dodatkowo _process_data_sync jest wywoływany w run_in_executor, ale nie wiadomo, czy ta funkcja jest bezpieczna wątkowo.
+    Naprawa : Przechwytuj bardziej specyficzne wyjątki i loguj pełny stack trace. Upewnij się, że _process_data_sync nie korzysta ze współdzielonego stanu bez synchronizacji.
+
+[107] ŚREDNI — CWE-276 Incorrect Default Permissions
+    Plik    : offline-package/agent/install.sh (linia 7)
+    Opis    : Plik .env otrzymuje uprawnienia 600 dopiero po skopiowaniu z .env.example. Istnieje krótki wyścig (race condition) między `cp` a `chmod`, podczas którego plik może mieć domyślne uprawnienia (np. 644) i być odczytany przez innych użytkowników systemu. Ponadto jeśli plik .env już istnieje (warunek if nie jest spełniony), jego uprawnienia nie są weryfikowane — może mieć zbyt szerokie uprawnienia.
+    Naprawa : Ustaw umask przed kopiowaniem (np. `umask 077 && cp .env.example .env`) lub użyj `install -m 600 .env.example .env`. Dodatkowo zawsze weryfikuj uprawnienia istniejącego pliku .env, np. `chmod 600 .env` poza blokiem if.
+
+[108] NISKI — CWE-489 Active Debug Code / Information Exposure
+    Plik    : offline-package/agent/install.sh (linia 10)
+    Opis    : Skrypt wypisuje na ekran instrukcje dotyczące tokenów i nazw hostów. W środowiskach z logowaniem sesji terminala (np. script, auditd, CI/CD pipeline) te informacje mogą zostać utrwalone w logach.
+    Naprawa : Rozważ minimalizację informacji wypisywanych na terminal lub przekieruj wrażliwe podpowiedzi do interaktywnego promptu zamiast echo.
+
+[109] NISKI — CWE-20 Improper Input Validation
+    Plik    : offline-package/agent/install.sh (linia 14)
+    Opis    : Skrypt używa `read -p` do oczekiwania na potwierdzenie użytkownika, ale nie waliduje zawartości pliku .env przed uruchomieniem `docker compose up -d`. Brakujące lub nieprawidłowe zmienne (AGENT_TOKEN, CENTRAL_HOST) mogą spowodować uruchomienie kontenera z niekompletną konfiguracją.
+    Naprawa : Dodaj walidację pliku .env przed uruchomieniem kontenerów — sprawdź czy wymagane zmienne (CENTRAL_HOST, AGENT_TOKEN, AGENT_NAME) są ustawione i niepuste.
+
+[110] INFORMACJA — CWE-272 Least Privilege Violation
+    Plik    : offline-package/agent/install.sh (linia 1)
+    Opis    : Skrypt nie wymaga jawnie uprawnień root, ale operacje `docker load` i `docker compose` zazwyczaj wymagają uprawnień root lub członkostwa w grupie docker. Brak sprawdzenia uprawnień może prowadzić do niejasnych błędów.
+    Naprawa : Dodaj na początku skryptu sprawdzenie czy użytkownik ma wystarczające uprawnienia (np. `if [ "$(id -u)" -ne 0 ]; then echo 'Wymagane uprawnienia root'; exit 1; fi`).
+
+[111] ŚREDNI — Cleartext HTTP Exposure
+    Plik    : offline-package/central/docker-compose.yml (linia 33)
+    Opis    : Port 80 jest wystawiony publicznie. Jeśli nginx nie wymusza przekierowania na HTTPS, ruch może być przesyłany niezaszyfrowanym kanałem HTTP, co naraża dane użytkowników (w tym poświadczenia) na przechwycenie.
+    Naprawa : Upewnij się, że konfiguracja nginx wymusza przekierowanie 301 z portu 80 na 443 (HTTPS). Rozważ usunięcie mapowania portu 80, jeśli nie jest konieczne, lub ogranicz nasłuchiwanie do 127.0.0.1:80:80.
+
+[112] NISKI — Hardcoded Internal IP Address
+    Plik    : offline-package/central/docker-compose.yml (linia 7)
+    Opis    : Adres IP 192.168.10.57 jest zakodowany na stałe w konfiguracji extra_hosts. Zmiana adresu serwera AI wymaga ręcznej edycji pliku compose, co utrudnia zarządzanie i może prowadzić do błędów konfiguracyjnych.
+    Naprawa : Przenieś adres IP do zmiennej środowiskowej (np. ${AI_HOST_IP}) lub użyj mechanizmu DNS zamiast hardkodowania adresu.
+
+[113] NISKI — Unnecessary Capabilities
+    Plik    : offline-package/central/docker-compose.yml (linia 42)
+    Opis    : Kontener nginx posiada uprawnienia CAP_CHOWN, CAP_SETUID i CAP_SETGID. Uprawnienia SETUID i SETGID mogą zostać wykorzystane do eskalacji uprawnień wewnątrz kontenera, jeśli dojdzie do jego kompromitacji.
+    Naprawa : Zminimalizuj przyznane uprawnienia. Jeśli nginx działa jako użytkownik nieuprzywilejowany po starcie, rozważ użycie jedynie NET_BIND_SERVICE lub uruchomienie nginx na porcie >1024 wewnątrz kontenera, eliminując potrzebę SETUID/SETGID.
+
+[114] INFORMACJA — Missing Resource Limits
+    Plik    : offline-package/central/docker-compose.yml (linia 2)
+    Opis    : Żaden z kontenerów nie ma zdefiniowanych limitów zasobów (CPU, pamięć). Brak limitów może umożliwić atak typu Denial of Service poprzez wyczerpanie zasobów hosta.
+    Naprawa : Dodaj sekcję 'deploy.resources.limits' z limitami pamięci i CPU dla każdego kontenera, np. mem_limit: 512m, cpus: '0.5'.
+
+[115] INFORMACJA — Missing Health Check
+    Plik    : offline-package/central/docker-compose.yml (linia 2)
+    Opis    : Żaden z kontenerów nie ma zdefiniowanego healthcheck. Bez sprawdzania stanu zdrowia Docker nie może automatycznie wykryć, że usługa przestała odpowiadać.
+    Naprawa : Dodaj sekcję 'healthcheck' do każdego serwisu, np. curl na endpoint zdrowia lub test połączenia TCP.
+
+[116] INFORMACJA — Missing Network Segmentation
+    Plik    : offline-package/central/docker-compose.yml (linia 1)
+    Opis    : Nie zdefiniowano dedykowanych sieci Docker. Oba kontenery znajdują się w domyślnej sieci, co oznacza brak segmentacji — potencjalnie inne kontenery na tym samym hoście mogłyby komunikować się z serwisami.
+    Naprawa : Zdefiniuj dedykowaną sieć wewnętrzną (internal: true) dla komunikacji między dockermind-web a nginx i przypisz ją do obu serwisów. Nginx powinien mieć dodatkowo sieć publiczną.
+
+[117] KRYTYCZNY — Docker Socket Exposure
+    Plik    : offline-package/agent/docker-compose.yml (linia 8)
+    Opis    : Montowanie /var/run/docker.sock wewnątrz kontenera daje pełną kontrolę nad demonem Dockera hosta. Atakujący, który przejmie kontener, może tworzyć uprzywilejowane kontenery, eskalować uprawnienia i przejąć pełną kontrolę nad hostem. Nawet z cap_drop ALL i no-new-privileges, dostęp do socketa Dockera pozwala na ominięcie tych zabezpieczeń.
+    Naprawa : Unikaj montowania docker.sock. Zamiast tego użyj Docker API z ograniczonym proxy (np. Tecnativa/docker-socket-proxy) z dostępem tylko do potrzebnych endpointów, lub zastosuj tryb bezagentowy.
+
+[118] KRYTYCZNY — Host Filesystem Mount
+    Plik    : offline-package/agent/docker-compose.yml (linia 10)
+    Opis    : Montowanie całego systemu plików hosta (/ -> /host) daje kontenerowi dostęp do wszystkich plików na hoście, w tym /etc/shadow, kluczy SSH, plików konfiguracyjnych i innych wrażliwych danych. W połączeniu z CAP_DAC_READ_SEARCH kontener może odczytać dowolny plik na hoście niezależnie od uprawnień.
+    Naprawa : Zamontuj tylko konkretne, niezbędne katalogi zamiast całego systemu plików root. Na przykład zamontuj tylko /var/log:/host/var/log:ro lub inne specyficzne ścieżki wymagane do monitoringu.
+
+[119] WYSOKI — Sensitive Process Information Exposure
+    Plik    : offline-package/agent/docker-compose.yml (linia 11)
+    Opis    : Montowanie /proc/1/net z procesu init hosta ujawnia informacje o połączeniach sieciowych hosta (TCP/UDP, interfejsy sieciowe, tablice routingu). Może to ułatwić atakującemu rekonesans sieci wewnętrznej.
+    Naprawa : Ogranicz dostęp do informacji sieciowych hosta do minimum. Rozważ zbieranie tych danych przez agenta działającego bezpośrednio na hoście lub przez dedykowany mechanizm API.
+
+[120] ŚREDNI — Cleartext Communication (WebSocket without TLS)
+    Plik    : offline-package/agent/docker-compose.yml (linia 14)
+    Opis    : Zmienna CENTRAL_URL używa protokołu ws:// (nieszyfrowany WebSocket). Token agenta (AGENT_TOKEN) i wszystkie dane monitoringu są przesyłane bez szyfrowania, co umożliwia ich przechwycenie w ataku man-in-the-middle.
+    Naprawa : Użyj wss:// (WebSocket over TLS) zamiast ws:// do komunikacji z serwerem centralnym. Upewnij się, że certyfikaty TLS są poprawnie skonfigurowane.
+
+[121] ŚREDNI — Credentials in Environment Variables
+    Plik    : offline-package/agent/docker-compose.yml (linia 15)
+    Opis    : Token agenta (AGENT_TOKEN) jest przekazywany jako zmienna środowiskowa, co oznacza, że jest widoczny w docker inspect, /proc/*/environ i logach. Każdy użytkownik z dostępem do Dockera może go odczytać.
+    Naprawa : Użyj Docker secrets (secrets w docker-compose) lub zamontuj token z pliku w wolumenie read-only zamiast przekazywać go przez zmienne środowiskowe.
+
+[122] ŚREDNI — Excessive Capability - DAC_READ_SEARCH
+    Plik    : offline-package/agent/docker-compose.yml (linia 25)
+    Opis    : Capability DAC_READ_SEARCH pozwala na pomijanie kontroli uprawnień przy odczycie plików i przeszukiwaniu katalogów. W połączeniu z montowaniem / hosta daje to możliwość odczytu absolutnie każdego pliku na hoście, w tym /etc/shadow, kluczy prywatnych itp.
+    Naprawa : Jeśli to możliwe, usuń tę capability i ogranicz montowane wolumeny do konkretnych katalogów z odpowiednimi uprawnieniami. Rozważ alternatywne podejście do zbierania danych.
+
+[123] ŚREDNI — CWE-200 - Information Exposure
+    Plik    : offline-package/central/install.sh (linia 13)
+    Opis    : Skrypt wyświetla w terminalu przykładowe wartości sekretów (CT_PASSWORD, CT_SECRET_KEY, AGENT_SECRET_TOKEN) oraz instrukcje z konkretnymi komendami generowania. Choć same wartości nie są hardcoded, wypisanie wzorców na stdout może zostać utrwalone w logach terminala, logach CI/CD lub screen recordings, co ułatwia atakującemu zrozumienie schematu generowania sekretów.
+    Naprawa : Zamiast wypisywać instrukcje na stdout, odnieś użytkownika do pliku README lub dokumentacji. Unikaj wypisywania nazw zmiennych sekretowych w logach. Rozważ automatyczne generowanie sekretów zamiast polegania na ręcznej edycji.
+
+[124] ŚREDNI — CWE-319 - Cleartext Transmission of Sensitive Data
+    Plik    : offline-package/central/install.sh (linia 22)
+    Opis    : Skrypt informuje o dostępie agentów przez ws:// (nieszyfrowany WebSocket) na porcie 80. Komunikacja agentów z centralą przesyłająca tokeny autoryzacyjne i dane zarządzania kontenerami odbywa się bez szyfrowania, co umożliwia przechwycenie AGENT_SECRET_TOKEN i danych w sieci.
+    Naprawa : Używaj wyłącznie wss:// (WebSocket over TLS) do komunikacji z agentami. Upewnij się, że nginx przekierowuje ruch z portu 80 na 443 z wymuszeniem TLS.
+
+[125] NISKI — CWE-295 - Improper Certificate Validation
+    Plik    : offline-package/central/install.sh (linia 21)
+    Opis    : Skrypt instruuje użytkownika, aby zaakceptował self-signed certyfikat w przeglądarce. Przyzwyczajanie użytkowników do akceptowania niezaufanych certyfikatów osłabia bezpieczeństwo i może prowadzić do ataków Man-in-the-Middle.
+    Naprawa : Zalecaj konfigurację z właściwym certyfikatem TLS (np. Let's Encrypt) lub przynajmniej dodanie certyfikatu CA do zaufanych w systemie, zamiast zachęcać do ignorowania ostrzeżeń przeglądarki.
+
+[126] NISKI — CWE-362 - Race Condition / TOCTOU
+    Plik    : offline-package/central/install.sh (linia 7)
+    Opis    : Między sprawdzeniem istnienia pliku .env (test -f) a jego skopiowaniem (cp) istnieje teoretyczne okno czasowe TOCTOU. Inny proces mógłby w tym czasie utworzyć plik .env z niebezpieczną zawartością.
+    Naprawa : Użyj atomowej operacji kopiowania z flagą, np. 'cp -n .env.example .env' (nie nadpisuj istniejącego), lub użyj blokady pliku.
+
+[127] INFORMACJA — CWE-252 - Unchecked Return Value
+    Plik    : offline-package/central/install.sh (linia 5)
+    Opis    : Komendy 'docker load' nie mają weryfikacji integralności ładowanych obrazów (np. sprawdzenia sum kontrolnych plików .tar). Jeśli pliki zostały zmodyfikowane, złośliwy obraz Docker zostanie załadowany bez ostrzeżenia.
+    Naprawa : Przed załadowaniem obrazów zweryfikuj ich sumy kontrolne (sha256sum) względem znanych wartości dostarczanych w osobnym pliku podpisów lub manifeście.

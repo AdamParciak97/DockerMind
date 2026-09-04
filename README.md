@@ -23,6 +23,7 @@ Monitors all Docker containers across your infrastructure. One click triggers a 
 |---------|------|
 | **Dashboard w czasie rzeczywistym** | CPU, RAM, sieć, dysk — odświeżane co 30s przez WebSocket |
 | **Terminal w przeglądarce** | `docker exec` przez xterm.js — w pełni offline |
+| **Terminal hosta (opt-in)** | Powłoka systemu hosta dla administratorów — wyłączona domyślnie |
 | **Analiza AI** | Streaming llama3/qwen — diagnoza, ocena ryzyka, komendy naprawcze |
 | **Alerty** | Reguły per-kontener, alerty złożone (min. czas trwania N minut) |
 | **Metryki historyczne** | CPU/RAM/Net/Disk co 30s, wykresy do 24h |
@@ -195,6 +196,24 @@ docker compose up -d
 docker logs dockermind-agent -f
 # Oczekiwany output: "Registered as 'nazwa-serwera' (192.168.1.200)"
 ```
+
+### Opcjonalny terminal hosta
+
+Terminal hosta jest przeznaczony wyłącznie dla administratorów DockerMind i daje
+interaktywną powłokę z uprawnieniami hosta. Włącz go tylko na zaufanych serwerach:
+
+```bash
+# w agent/.env
+HOST_ACCESS_ENABLED=true
+
+# uruchomienie
+docker compose up -d --build
+```
+
+Przy `HOST_ACCESS_ENABLED=false` agent odrzuca żądania terminala hosta.
+W panelu wybierz serwer i użyj przycisku **Terminal hosta**. W trybie wyboru można
+zaznaczać serwery; akcje Start/Stop/Restart obejmą wszystkie ich kontenery oraz
+kontenery zaznaczone pojedynczo.
 
 ---
 

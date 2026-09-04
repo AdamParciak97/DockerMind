@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from auth import verify_agent_ws, verify_dashboard_ws
-from config import warn_insecure_defaults
+from config import validate_runtime_config, warn_insecure_defaults
 from models import create_db
 from routers.alerts import router as alerts_router
 from routers.analysis import router as analysis_router
@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("DockerMind Central starting...")
     warn_insecure_defaults()
+    validate_runtime_config()
     create_db()
     manager.start()
     yield
@@ -241,7 +242,13 @@ async def terminal_ws(websocket: WebSocket):
     username, role = auth
 
     agent_id  = websocket.query_params.get("agent_id", "")
-    container = websocket.query_params.get("container", "")
+    target = websocket.query_params.get("target", websocket.query_params.get("container", ""))
+
+    # A terminal is an interactive command-execution channel.  Keep it limited
+    # to administrators; host sessions are additionally opt-in on every agent.
+    if role != "admin":
+        await websocket.close(code=4003, reason="Terminal wymaga roli administratora.")
+        return
 
     # Kontrola dostępu do agenta
     from models import get_allowed_agent_ids, engine as _engine
@@ -257,8 +264,8 @@ async def terminal_ws(websocket: WebSocket):
     except ValueError:
         cols, rows = 220, 50
 
-    if not agent_id or not container:
-        await websocket.close(code=4000, reason="Brak agent_id lub container.")
+    if not agent_id or not target:
+        await websocket.close(code=4000, reason="Brak agent_id lub target.")
         return
 
     await websocket.accept()
@@ -271,7 +278,7 @@ async def terminal_ws(websocket: WebSocket):
         await manager.send_to_agent(agent_id, json.dumps({
             "type": "exec_start",
             "session_id": session_id,
-            "container": container,
+            "target": target,
             "cols": cols,
             "rows": rows,
         }))

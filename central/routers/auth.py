@@ -60,12 +60,18 @@ def _set_token_cookie(response: Response, token: str) -> None:
 
 
 def _clear_token_cookie(response: Response) -> None:
-    response.delete_cookie(_COOKIE_NAME, path="/", samesite="lax")
+    # Must match all attributes used when the cookie was set so browsers remove it correctly.
+    response.delete_cookie(
+        _COOKIE_NAME,
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=True,
+    )
 
 
 def _client_ip(request: Request) -> str:
-    ff = request.headers.get("X-Forwarded-For", "")
-    return ff.split(",")[0].strip() if ff else (request.client.host if request.client else "")
+    return request.client.host if request.client else ""
 
 
 class LoginRequest(BaseModel):

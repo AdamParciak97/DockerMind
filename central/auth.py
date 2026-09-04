@@ -9,6 +9,7 @@ Agents authenticate via AGENT_SECRET_TOKEN header.
 Session token: httpOnly cookie "dm_token" (preferred) OR Bearer header (fallback).
 """
 
+import hmac
 import logging
 import re
 import uuid
@@ -55,14 +56,16 @@ def hash_password(plain: str) -> str:
 def validate_password_strength(password: str) -> Optional[str]:
     """
     Returns error message if password is too weak, None if OK.
-    Rules: min 8 chars, at least one uppercase letter, at least one digit.
+    Rules: min 12 chars, uppercase, digit, special character.
     """
-    if len(password) < 8:
-        return "Hasło musi mieć co najmniej 8 znaków."
+    if len(password) < 12:
+        return "Hasło musi mieć co najmniej 12 znaków."
     if not re.search(r"[A-Z]", password):
         return "Hasło musi zawierać co najmniej jedną wielką literę."
     if not re.search(r"[0-9]", password):
         return "Hasło musi zawierać co najmniej jedną cyfrę."
+    if not any(not char.isalnum() for char in password):
+        return "Hasło musi zawierać co najmniej jeden znak specjalny."
     return None
 
 
@@ -153,7 +156,7 @@ def require_agent_token(
         logger.warning("AGENT_SECRET_TOKEN not set — agent auth disabled.")
         return
     token = (x_agent_token or "").strip()
-    if token != settings.AGENT_SECRET_TOKEN:
+    if not hmac.compare_digest(token, settings.AGENT_SECRET_TOKEN):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Nieprawidłowy token agenta.",
@@ -166,6 +169,8 @@ async def verify_dashboard_ws(websocket: WebSocket) -> Optional[tuple]:
     Checks httpOnly cookie first, then ?token= query param (fallback).
     Returns (username, role) or None.
     """
+    # Prefer httpOnly cookie; query param fallback is kept for WebSocket handshake
+    # compatibility but should not be used with sensitive tokens in production.
     token = websocket.cookies.get("dm_token") or websocket.query_params.get("token", "")
     if not token:
         return None
@@ -203,10 +208,7 @@ async def verify_agent_ws(websocket: WebSocket) -> bool:
         logger.warning("AGENT_SECRET_TOKEN not set — agent auth disabled.")
         return True
 
-    ok = token == expected
+    ok = hmac.compare_digest(token, expected)
     if not ok:
-        logger.warning(
-            "Agent token mismatch — received=%r (len=%d)",
-            token[:6] + "..." if token else "(empty)", len(token),
-        )
+        logger.warning("Agent token mismatch — token length: %d", len(token))
     return ok
