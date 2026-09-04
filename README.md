@@ -6,7 +6,7 @@
 ![WebSocket](https://img.shields.io/badge/WebSocket-real--time-FF6B35)
 ![Offline AI](https://img.shields.io/badge/AI-Offline%20%7C%20llama3-8B4FFF)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.2.0-blue)
+![Version](https://img.shields.io/badge/version-1.3.0-blue)
 
 **AI-powered Docker monitoring platform — fully offline, multi-server architecture.**
 
@@ -34,7 +34,7 @@ Monitors all Docker containers across your infrastructure. One click triggers a 
 | **Historia zdarzeń** | Crash, restart, stop — timeline per kontener |
 | **Eksport PDF** | Raport AI do pliku PDF |
 | **docker-compose edit** | Edycja i zapis pliku compose z UI |
-| **Akcje kontenerów** | Start / stop / restart z dashboardu |
+| **Akcje zbiorowe** | Start / stop / restart dla zaznaczonych kontenerów i serwerów |
 | **LDAP / Active Directory** | Konfiguracja i logowanie przez GUI, zarządzanie rolami w DockerMind |
 | **HTTPS + TLS 1.3** | nginx z self-signed cert (auto-generowanym), HSTS |
 | **Audit log** | Pełna historia logowań, akcji, zmian konfiguracji |
@@ -46,7 +46,7 @@ Monitors all Docker containers across your infrastructure. One click triggers a 
 
 ## Bezpieczeństwo / Security
 
-DockerMind v1.2 został zaprojektowany z podejściem *security-first*:
+DockerMind v1.3 został zaprojektowany z podejściem *security-first*:
 
 | Mechanizm | Opis |
 |-----------|------|
@@ -185,7 +185,7 @@ scp -r DockerMind/agent/ user@192.168.1.200:~/dockermind-agent/
 cd ~/dockermind-agent
 cp .env.example .env
 nano .env
-# CENTRAL_HOST=192.168.1.100    ← IP centrali
+# CENTRAL_URL=wss://dockermind.example.local:8443/ws/agent
 # AGENT_TOKEN=...               ← identyczny z AGENT_SECRET_TOKEN na centrali
 # AGENT_NAME=nazwa-serwera
 
@@ -241,10 +241,12 @@ kontenery zaznaczone pojedynczo.
 
 | Zmienna | Przykład | Opis |
 |---------|----------|------|
-| `CENTRAL_HOST` | `192.168.1.100` | IP lub hostname centrali |
+| `CENTRAL_URL` | `wss://centrala:8443/ws/agent` | Adres WebSocket centrali |
+| `CENTRAL_CA_CERT` | *(brak)* | Ścieżka do certyfikatu CA dla połączenia WSS z własnym CA |
 | `AGENT_TOKEN` | *(token)* | Identyczny z `AGENT_SECRET_TOKEN` na centrali |
 | `AGENT_NAME` | `serwer-prod-01` | Wyświetlana nazwa w dashboardzie |
 | `AGENT_IP` | *(auto)* | Nadpisanie auto-wykrytego IP hosta |
+| `HOST_ACCESS_ENABLED` | `false` | Udostępnia administratorom terminal systemu hosta |
 
 > Hostname i IP są wykrywane automatycznie — hostname z `/etc/hostname` hosta, IP przez `/proc/1/net`.
 
@@ -328,7 +330,7 @@ kontenery zaznaczone pojedynczo.
 |----------|------|
 | `ws://HOST/ws/agent` | Połączenie agenta (nagłówek `X-Agent-Token`) |
 | `wss://HOST/ws/dashboard` | Live updates dashboardu (cookie `dm_token`) |
-| `wss://HOST/ws/terminal?agent_id=ID&container=NAME` | Terminal PTY (cookie `dm_token`) |
+| `wss://HOST/ws/terminal?agent_id=ID&target=NAME` | Terminal PTY administratora; `target=__host__` otwiera hosta |
 
 ---
 
@@ -359,8 +361,8 @@ kontenery zaznaczone pojedynczo.
 # Logi agenta
 docker logs dockermind-agent -f
 
-# Sprawdź osiągalność centrali (port 80 dla agentów)
-curl http://$CENTRAL_HOST/api/health
+# Sprawdź osiągalność centrali
+curl http://CENTRAL_IP/api/health
 
 # Tokeny muszą być identyczne:
 # agent/.env:        AGENT_TOKEN=abc123...
@@ -386,13 +388,25 @@ volumes:
   - /proc/1/net:/host-proc-net:ro
 ```
 
-### Upgrade z v1.1 do v1.2
+### Terminal hosta nie otwiera się
 
-Baza danych migruje się automatycznie przy starcie (nowe tabele: `ActiveSession`, `AgentToken`, `RevokedToken`, `AuditLog`). Nie trzeba ręcznie zmieniać schematu.
+Upewnij się, że w `agent/.env` ustawiono `HOST_ACCESS_ENABLED=true`, a agent został
+odtworzony po zmianie konfiguracji:
 
 ```bash
-docker load < dockermind-web-1.2.tar.gz
-docker load < dockermind-nginx-1.2.tar.gz
+docker compose up -d --force-recreate
+```
+
+Terminal hosta jest dostępny wyłącznie dla roli `admin`.
+
+### Upgrade do v1.3
+
+Baza danych migruje się automatycznie przy starcie. Zaktualizuj centralę i agenta,
+a następnie odtwórz kontenery:
+
+```bash
+docker build -t dockermind-web:1.3 central
+docker build -t dockermind-agent:1.3 agent
 docker compose up -d
 ```
 
@@ -425,6 +439,12 @@ docker compose up -d
 ---
 
 ## Changelog
+
+### v1.3.0
+- **Terminal hosta** — opcjonalna powłoka hosta dostępna tylko dla administratorów
+- **Akcje zbiorowe** — start, stop i restart kontenerów ze wskazanych serwerów
+- **Bezpieczniejszy terminal** — sesje terminalowe wymagają roli administratora
+- **Połączenie WSS agenta** — obsługa własnego certyfikatu CA przez `CENTRAL_CA_CERT`
 
 ### v1.2.0
 - **HTTPS** — nginx z auto-generowanym self-signed certyfikatem, TLS 1.2/1.3, HSTS
