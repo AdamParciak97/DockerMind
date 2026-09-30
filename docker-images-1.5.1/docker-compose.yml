@@ -1,0 +1,82 @@
+﻿services:
+  dockermind-web:
+    image: dockermind-web:1.5.1
+    container_name: dockermind-web
+    restart: unless-stopped
+    environment:
+      AI_BASE_URL: ${AI_BASE_URL}
+      AI_MODEL: ${AI_MODEL}
+      AI_API_TOKEN: ${AI_API_TOKEN}
+      CT_USERNAME: ${CT_USERNAME}
+      CT_PASSWORD: ${CT_PASSWORD}
+      CT_SECRET_KEY: ${CT_SECRET_KEY}
+      AGENT_SECRET_TOKEN: ${AGENT_SECRET_TOKEN}
+      CT_PORT: 8080
+    volumes:
+      - dockermind_data:/app/data
+      - ./certs:/app/certs:ro
+    expose:
+      - "8080"
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  nginx:
+    image: dockermind-nginx:1.5.1
+    container_name: dockermind-nginx
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-80}:80"
+      - "${BIND_ADDRESS:-0.0.0.0}:8443:443"
+    volumes:
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - dockermind-web
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETUID
+      - SETGID
+
+  dockermind-agent:
+    profiles: ["local-agent"]
+    image: dockermind-agent:1.5.1
+    container_name: dockermind-agent
+    restart: unless-stopped
+    depends_on:
+      - dockermind-web
+    environment:
+      CENTRAL_URL: ws://dockermind-web:8080/ws/agent
+      AGENT_TOKEN: ${AGENT_SECRET_TOKEN}
+      AGENT_NAME: local-docker-desktop
+      HOST_ROOT: /host
+      HOST_ACCESS_ENABLED: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /:/host:ro
+      - /proc/1/net:/host-proc-net:ro
+    pid: host
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_READ_SEARCH
+      - SYS_ADMIN
+      - SYS_CHROOT
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  dockermind_data: {}
+
+
