@@ -1,0 +1,3 @@
+services:
+  dockermind-web:
+    image: dockermind-web:1.5-hotfix1
