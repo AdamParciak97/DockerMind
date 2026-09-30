@@ -50,6 +50,21 @@ def _agent_supports_host_commands(info: dict | None) -> bool:
     return protocol >= 1 and enabled is True
 
 
+def _normalized_agent_info(info: dict | None) -> dict:
+    """Keep capability types stable for the existing dashboard JavaScript."""
+    normalized = dict(info or {})
+    capabilities = dict(normalized.get("capabilities") or {})
+    try:
+        capabilities["command_protocol"] = int(capabilities.get("command_protocol", 0))
+    except (TypeError, ValueError):
+        capabilities["command_protocol"] = 0
+    value = capabilities.get("host_commands", False)
+    if isinstance(value, str):
+        capabilities["host_commands"] = value.strip().lower() in {"1", "true", "yes", "on"}
+    normalized["capabilities"] = capabilities
+    return normalized
+
+
 def _validate_ids(agent_id: str, container_name: str = "") -> None:
     if not _AGENT_ID_RE.match(agent_id):
         raise HTTPException(status_code=400, detail="Nieprawidłowy identyfikator agenta.")
@@ -100,7 +115,7 @@ async def list_servers(
             "online": a["online"],
             "warning": warning,
             "last_seen": a["last_seen"],
-            "info": a["info"],
+            "info": _normalized_agent_info(a["info"]),
             "container_count": len(containers),
             "containers_running": running,
             "containers_stopped": stopped,
@@ -138,6 +153,7 @@ async def update_server_profile(
     data = {"agent_id": agent_id, "display_name": name}
     log_audit(session, "server_renamed", username=info["username"], detail=json.dumps(data))
     await manager.broadcast_to_dashboards("agent_updated", data)
+    data["info"] = _normalized_agent_info(data.get("info"))
     return data
 
 
