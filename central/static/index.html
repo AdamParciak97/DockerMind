@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pl" class="dark">
 <head>
 <meta charset="UTF-8">
@@ -16,6 +16,8 @@
 <script src="/static/xterm.js"></script>
 <script src="/static/xterm-fit.js"></script>
 <script defer src="/static/alpine.min.js"></script>
+<link rel="stylesheet" href="/static/fleet.css">
+<script src="/static/fleet.js"></script>
 
 <style>
   [x-cloak] { display: none !important; }
@@ -54,14 +56,17 @@
     background:#374151; border:none; color:#9ca3af; font-size:.7rem;
     padding:2px 7px; border-radius:4px; cursor:pointer; opacity:0; transition:opacity .2s; }
   .analysis pre:hover .copy-btn { opacity:1; }
+  @media (max-width: 767px) {
+    aside.app-sidebar { position:fixed; inset:0 auto 0 0; z-index:40; display:none; }
+    .app-sidebar.is-open { display:flex; }
+  }
 </style>
 </head>
 
 <body class="dark bg-gray-950 text-gray-200 h-full" x-data="app()" x-cloak>
 
-<!-- ═══════════════════════════════════════════════════════════════════════════
-     LOGIN MODAL
-     ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- LOGIN MODAL
+     -->
 <div x-show="!loggedIn"
      class="fixed inset-0 bg-gray-950 flex items-center justify-center z-50">
   <div class="bg-gray-900 border border-gray-700 rounded-2xl p-8 w-full max-w-sm shadow-2xl">
@@ -97,25 +102,24 @@
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════════════════════
-     INACTIVITY WARNING BANNER
-     ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- INACTIVITY WARNING BANNER
+     -->
 <div x-show="_inactivityWarning"
      class="fixed top-0 left-0 right-0 z-50 bg-yellow-600 text-white text-center py-2 text-sm font-medium shadow-lg">
   Sesja wygaśnie za 2 minuty z powodu braku aktywności.
   <button @click="_resetInactivityTimer()"
           class="ml-3 underline font-semibold hover:text-yellow-100">
-    Przedłuż sesję
+    PrzedłuŻ sesję
   </button>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════════════════════
-     MAIN APP
-     ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- MAIN APP
+     -->
 <div x-show="loggedIn" class="flex h-screen overflow-hidden">
 
-  <!-- ─── SIDEBAR ──────────────────────────────────────────────────────────── -->
-  <aside class="w-64 bg-gray-900 border-r border-gray-800 flex flex-col flex-shrink-0">
+  <!-- SIDEBAR -->
+  <div x-show="mobileNav" @click="mobileNav=false" class="md:hidden fixed inset-0 bg-black/60 z-30"></div>
+  <aside :class="{'is-open': mobileNav}" class="app-sidebar w-64 bg-gray-900 border-r border-gray-800 flex flex-col flex-shrink-0">
 
     <!-- Logo -->
     <div class="px-4 py-4 border-b border-gray-800 flex-shrink-0">
@@ -123,7 +127,7 @@
         <span class="text-3xl leading-none">🐳</span>
         <div>
           <div class="font-bold text-white text-lg leading-tight">DockerMind</div>
-          <div class="text-gray-600 text-xs">v1.0</div>
+          <div class="text-gray-500 text-xs">Centrum infrastruktury</div>
         </div>
       </div>
       <!-- WS indicator -->
@@ -137,6 +141,8 @@
 
     <!-- Server list -->
     <div class="flex-1 overflow-y-auto py-3 px-3">
+      <button @click="showFleet()" :class="page==='dashboard' && !selSrvId ? 'bg-blue-950 text-blue-300' : 'text-gray-400 hover:bg-gray-800'"
+        class="w-full text-left px-3 py-2.5 rounded-lg mb-3 text-sm font-semibold">▸ Dashboard</button>
       <div class="text-xs text-gray-600 uppercase tracking-widest mb-2 px-1">Serwery</div>
 
       <template x-if="servers.length === 0">
@@ -152,7 +158,7 @@
           <button @click="expandedGroups[grp.id] = !expandedGroups[grp.id]"
             class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg
                    text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 transition-colors text-xs">
-            <span x-text="expandedGroups[grp.id] ? '▾' : '▸'" class="flex-shrink-0 w-3"></span>
+            <span x-text="expandedGroups[grp.id] ? '' : ''" class="flex-shrink-0 w-3"></span>
             <span class="w-2 h-2 rounded-full flex-shrink-0"
                   :style="`background:${grp.color}`"></span>
             <span class="font-semibold uppercase tracking-wide flex-1 text-left truncate"
@@ -166,10 +172,12 @@
                 :class="selSrvId===srv.agent_id ? 'bg-gray-800 border-gray-600' : 'border-transparent hover:bg-gray-800/50'"
                 class="border rounded-xl p-2.5 cursor-pointer transition-all duration-150">
                 <div class="flex items-center gap-2">
+                  <input x-show="myRole==='admin'" type="checkbox" class="fleet-check" :checked="!!bulkServers[srv.agent_id]"
+                    @click.stop @change="toggleBulkServer(srv.agent_id)" :aria-label="'Wybierz serwer ' + srvName(srv)">
                   <div :class="srvDot(srv)" class="w-2 h-2 rounded-full flex-shrink-0"></div>
                   <div class="flex-1 min-w-0">
                     <div class="font-semibold text-white text-xs truncate"
-                         x-text="srv.info?.agent_name || srv.agent_id"></div>
+                         x-text="srvName(srv)"></div>
                     <div class="text-gray-600 text-xs truncate" x-text="srv.info?.ip || ''"></div>
                   </div>
                 </div>
@@ -193,10 +201,12 @@
               :class="selSrvId===srv.agent_id ? 'bg-gray-800 border-gray-600' : 'border-transparent hover:bg-gray-800/50'"
               class="border rounded-xl p-3 mb-1 cursor-pointer transition-all duration-150">
               <div class="flex items-center gap-2">
+                <input x-show="myRole==='admin'" type="checkbox" class="fleet-check" :checked="!!bulkServers[srv.agent_id]"
+                  @click.stop @change="toggleBulkServer(srv.agent_id)" :aria-label="'Wybierz serwer ' + srvName(srv)">
                 <div :class="srvDot(srv)" class="w-2.5 h-2.5 rounded-full flex-shrink-0"></div>
                 <div class="flex-1 min-w-0">
                   <div class="font-semibold text-white text-sm truncate"
-                       x-text="srv.info?.agent_name || srv.agent_id"></div>
+                       x-text="srvName(srv)"></div>
                   <div class="text-gray-500 text-xs truncate" x-text="srv.info?.ip || ''"></div>
                 </div>
               </div>
@@ -205,7 +215,7 @@
                 <span x-text="ago(srv.last_seen)"></span>
               </div>
               <template x-if="srvWarn(srv)">
-                <div class="text-yellow-500 text-xs mt-1">⚠ Restarty</div>
+                <div class="text-yellow-500 text-xs mt-1">Restarty</div>
               </template>
             </div>
           </template>
@@ -215,6 +225,8 @@
 
     <!-- Bottom nav -->
     <div class="px-3 pb-3 border-t border-gray-800 pt-2 space-y-0.5 flex-shrink-0">
+      <button x-show="myRole==='admin'" @click="showCommands()" :class="page==='commands' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800/50'"
+        class="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm">◉ <span>Wspólne komendy</span></button>
       <button @click="page='allalerts'; selCt=null; loadAllAlerts()"
         :class="page==='allalerts' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800/50'"
         class="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-colors">
@@ -234,12 +246,22 @@
         class="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-colors">
         ⚙ <span>Ustawienia</span>
       </button>
+      <button @click="page='help'; selSrvId=null; selCt=null"
+        :class="page==='help' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800/50'"
+        class="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-colors">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.7 9a2.5 2.5 0 1 1 4.1 1.9c-1.2.9-1.8 1.3-1.8 2.8M12 17h.01"/></svg><span>Pomoc</span>
+      </button>
+      <button @click="page='about'; selSrvId=null; selCt=null"
+        :class="page==='about' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800/50'"
+        class="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-colors">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></svg><span>About</span>
+      </button>
       <!-- User info -->
       <div class="flex items-center gap-2 px-3 py-2 text-xs text-gray-600 border-t border-gray-800 mt-1 pt-2">
         <span class="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"></span>
         <span class="flex-1 truncate" x-text="me"></span>
         <span x-show="myRole==='admin'" class="text-yellow-600 text-xs">admin</span>
-        <button @click="logout()" class="text-gray-700 hover:text-red-400 transition-colors ml-1">⏻</button>
+        <button @click="logout()" class="text-gray-700 hover:text-red-400 transition-colors ml-1"></button>
       </div>
     </div>
 
@@ -258,12 +280,14 @@
     </div>
   </aside>
 
-  <!-- ─── MAIN PANEL ────────────────────────────────────────────────────────── -->
-  <div class="flex-1 flex flex-col overflow-hidden">
+  <!-- MAIN PANEL -->
+  <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
 
     <!-- TOP BAR -->
     <header class="bg-gray-900 border-b border-gray-800 px-5 py-2.5 flex-shrink-0">
       <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+        <button @click="mobileNav=!mobileNav" class="md:hidden w-8 h-8 text-gray-200 flex-shrink-0"
+          title="Menu" aria-label="Menu" :aria-expanded="mobileNav">&#9776;</button>
 
         <div class="flex items-center gap-1.5">
           <span class="text-gray-500">Serwery:</span>
@@ -280,7 +304,7 @@
           <span class="text-gray-700">/</span>
           <span class="text-red-400" x-text="`${gs.cStop} zat.`"></span>
           <template x-if="gs.cUnhealthy > 0">
-            <span class="text-yellow-400 font-medium" x-text="`/ ${gs.cUnhealthy} ⚠`"></span>
+            <span class="text-yellow-400 font-medium" x-text="`/ ${gs.cUnhealthy} `"></span>
           </template>
         </div>
 
@@ -288,9 +312,9 @@
 
         <div class="flex items-center gap-1.5">
           <span class="text-gray-500">AI:</span>
-          <span class="text-purple-400">llama3</span>
-          <span :class="wsOk ? 'text-green-500' : 'text-gray-600'"
-                class="text-xs" x-text="wsOk ? '● połączony' : '○ offline'"></span>
+          <span class="text-purple-400" x-text="aiModel"></span>
+          <span :class="aiOnline === true ? 'text-green-500' : aiOnline === false ? 'text-red-400' : 'text-gray-500'"
+                class="text-xs" x-text="aiOnline === true ? '● połączony' : aiOnline === false ? '○ offline' : '… sprawdzanie'"></span>
         </div>
 
         <div class="ml-auto text-xs text-gray-600">
@@ -301,8 +325,17 @@
 
     <!-- CONTENT -->
     <main class="flex-1 overflow-auto p-5">
+      <div x-show="myRole==='admin' && selectedServers.length && page!=='commands'" class="fleet-selection">
+        <strong class="text-blue-200" x-text="'Wybrane serwery: ' + selectedServers.length"></strong>
+        <span class="text-gray-400" x-text="'Gotowe do komend: ' + commandReadyCount"></span>
+        <button @click="showCommands()" class="fleet-btn primary">Wspólne komendy →</button>
+        <button @click="bulkAction('start')" :disabled="bulkLoading" class="fleet-btn">Start kontenerów</button>
+        <button @click="bulkAction('stop')" :disabled="bulkLoading" class="fleet-btn">Stop kontenerów</button>
+        <button @click="bulkAction('restart')" :disabled="bulkLoading" class="fleet-btn">Restart kontenerów</button>
+        <button @click="bulkServers={}; bulkSelected={}" class="text-gray-400 text-xs ml-auto">Wyczyść wybór</button>
+      </div>
 
-      <!-- ── ALL ALERTS PAGE ──────────────────────────────────────────── -->
+      <!-- ALL ALERTS PAGE -->
       <template x-if="page==='allalerts'">
         <div class="max-w-4xl mx-auto">
           <div class="flex items-center justify-between mb-5">
@@ -330,7 +363,7 @@
           <div x-show="!allAlertsLoading">
             <template x-if="allAlerts.length === 0">
               <div class="text-center py-16 text-gray-700">
-                <div class="text-4xl mb-3">✅</div>
+                <div class="text-4xl mb-3">Brak</div>
                 <div>Brak alertów.</div>
               </div>
             </template>
@@ -353,7 +386,7 @@
                     <div>
                       <div class="text-xs text-gray-500">Metryka</div>
                       <div class="text-sm text-yellow-400"
-                           x-text="`${ev.metric_label}: ${ev.value.toFixed(1)} (próg: ${ev.threshold})`"></div>
+                           x-text="ev.message || `${ev.metric_label}: ${ev.value.toFixed(1)} (próg: ${ev.threshold})`"></div>
                     </div>
                     <div>
                       <div class="text-xs text-gray-500">Czas</div>
@@ -372,7 +405,7 @@
                     <button x-show="ev.status==='active'" @click="ackAlertGlobal(ev)"
                       class="text-xs text-blue-500 hover:text-blue-400 bg-blue-950/40
                              border border-blue-900/50 px-2 py-1 rounded-lg transition-colors">
-                      ✓ Potwierdź
+                      Potwierdź
                     </button>
                   </div>
                 </div>
@@ -382,7 +415,32 @@
         </div>
       </template>
 
-      <!-- ── SETTINGS PAGE ──────────────────────────────────────────────── -->
+      <template x-if="page==='help'">
+        <div class="max-w-5xl mx-auto space-y-5">
+          <div class="fleet-heading"><div><div class="text-xs text-blue-400 uppercase tracking-widest mb-2">DockerMind / Centrum pomocy</div><h1>Pomoc</h1><p class="fleet-caption">Najważniejsze funkcje i skrócona instrukcja obsługi.</p></div><button @click="showFleet()" class="fleet-btn">← Dashboard</button></div>
+          <div class="grid md:grid-cols-2 gap-4">
+            <article class="fleet-panel p-5"><h2 class="text-white font-semibold mb-2">Dashboard</h2><p class="text-sm text-gray-400">Użyj wyszukiwarki, filtrów statusu i grup, aby znaleźć serwer. Checkboxy pozwalają wybrać wiele serwerów jednocześnie.</p></article>
+            <article class="fleet-panel p-5"><h2 class="text-white font-semibold mb-2">Wspólne komendy</h2><p class="text-sm text-gray-400">Zaznacz serwery, przejdź do wspólnych komend i uruchom polecenie równolegle. Dry run pokazuje cele przed wykonaniem.</p></article>
+            <article class="fleet-panel p-5"><h2 class="text-white font-semibold mb-2">Terminal</h2><p class="text-sm text-gray-400">W widoku serwera otwórz Terminal hosta lub terminal kontenera. Kopiowanie i wklejanie działa przyciskami oraz skrótami Ctrl+Shift+C/V.</p></article>
+            <article class="fleet-panel p-5"><h2 class="text-white font-semibold mb-2">Reguły i alerty</h2><p class="text-sm text-gray-400">Reguły mogą filtrować po nazwie kontenera, obrazie i nazwie agenta. Alerty znajdziesz w menu oraz na karcie aktywnych problemów.</p></article>
+            <article class="fleet-panel p-5"><h2 class="text-white font-semibold mb-2">Backup i historia</h2><p class="text-sm text-gray-400">Backup bazy pobierzesz w Ustawieniach. Historia komend i audyt pokazują wykonane operacje oraz użytkownika.</p></article>
+            <article class="fleet-panel p-5"><h2 class="text-white font-semibold mb-2">Status AI</h2><p class="text-sm text-gray-400">Status AI w górnym pasku jest sprawdzany niezależnie od połączenia dashboardu i pokazuje rzeczywistą dostępność usługi.</p></article>
+          </div>
+        </div>
+      </template>
+
+      <template x-if="page==='about'">
+        <div class="max-w-3xl mx-auto">
+          <div class="fleet-heading"><div><div class="text-xs text-blue-400 uppercase tracking-widest mb-2">DockerMind</div><h1>About</h1><p class="fleet-caption">Informacje o aplikacji.</p></div><button @click="showFleet()" class="fleet-btn">← Dashboard</button></div>
+          <div class="fleet-panel p-7">
+            <div class="flex items-center gap-4 mb-6"><div class="text-5xl">🐳</div><div><h2 class="text-2xl font-semibold text-white">DockerMind</h2><p class="text-sm text-gray-400">Centrum monitorowania i zarządzania infrastrukturą Docker.</p></div></div>
+            <div class="grid sm:grid-cols-2 gap-4 text-sm"><div class="rounded-xl bg-gray-900 p-4"><div class="text-gray-500 text-xs uppercase mb-1">Autor</div><div class="text-white font-medium">Adam Parciak</div></div><div class="rounded-xl bg-gray-900 p-4"><div class="text-gray-500 text-xs uppercase mb-1">Wersja</div><div class="text-white font-medium">1.5</div></div></div>
+            <p class="text-sm text-gray-400 mt-6">DockerMind łączy monitoring kontenerów, alerty, reguły inwentaryzacji, terminale i bezpieczne operacje na wielu serwerach w jednym panelu.</p>
+          </div>
+        </div>
+      </template>
+
+      <!-- SETTINGS PAGE -->
       <template x-if="page==='settings'">
         <div class="max-w-3xl mx-auto">
           <h2 class="text-lg font-bold text-white mb-5">⚙ Ustawienia</h2>
@@ -394,19 +452,22 @@
               class="px-4 py-1.5 rounded-lg text-sm transition-all">🔑 Hasło</button>
             <button @click="settingsTab='users'; loadUsers()"
               :class="settingsTab==='users' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
-              class="px-4 py-1.5 rounded-lg text-sm transition-all">👤 Użytkownicy</button>
+              class="px-4 py-1.5 rounded-lg text-sm transition-all">Użytkownicy</button>
             <button @click="settingsTab='srvgroups'"
               :class="settingsTab==='srvgroups' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
-              class="px-4 py-1.5 rounded-lg text-sm transition-all">🖥 Grupy serwerów</button>
+              class="px-4 py-1.5 rounded-lg text-sm transition-all">Grupy serwerów</button>
+            <button x-show="myRole==='admin'" @click="settingsTab='inventory'; loadInventoryRules()"
+              :class="settingsTab==='inventory' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
+              class="px-4 py-1.5 rounded text-sm">Reguły kontenerów</button>
             <button @click="settingsTab='usrgroups'; loadUserGroups(); loadServerGroups()"
               :class="settingsTab==='usrgroups' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
-              class="px-4 py-1.5 rounded-lg text-sm transition-all">👥 Grupy użytkowników</button>
+              class="px-4 py-1.5 rounded-lg text-sm transition-all">Grupy użytkowników</button>
             <button @click="settingsTab='ldap'; loadLdapConfig()"
               :class="settingsTab==='ldap' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
               class="px-4 py-1.5 rounded-lg text-sm transition-all">🔐 LDAP</button>
             <button @click="settingsTab='sessions'; loadSessions()"
               :class="settingsTab==='sessions' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
-              class="px-4 py-1.5 rounded-lg text-sm transition-all">🖥 Sesje</button>
+              class="px-4 py-1.5 rounded-lg text-sm transition-all">Sesje</button>
             <template x-if="myRole === 'admin'">
               <button @click="settingsTab='auditlog'; loadAuditLogs()"
                 :class="settingsTab==='auditlog' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'"
@@ -419,7 +480,73 @@
             </template>
           </div>
 
-          <!-- ── Hasło ── -->
+          <section x-show="settingsTab==='inventory' && myRole==='admin'" class="space-y-5">
+            <h2 class="text-lg font-semibold text-white">Reguły kontenerów</h2>
+            <p class="text-sm text-gray-400 max-w-3xl">Wpisz zwykłe fragmenty nazw, po jednym w wierszu. Wystarczy jeden pasujący fragment; wielkość liter nie ma znaczenia. Podaj grupę, wymagany tag lub oba pola.</p>
+            <form @submit.prevent="saveInventoryRule()" class="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-3xl">
+              <label class="text-sm text-gray-400">Nazwa reguły
+                <input required maxlength="120" x-model="inventoryForm.name" class="block w-full bg-gray-800 border border-gray-700 rounded p-2 text-white">
+              </label>
+              <label class="text-sm text-gray-400">Dopasowanie
+                <select x-model="inventoryForm.field" class="block w-full bg-gray-800 border border-gray-700 rounded p-2 text-white">
+                  <option value="image">Nazwa obrazu zawiera</option><option value="name">Nazwa kontenera zawiera</option>
+                </select>
+              </label>
+              <label class="text-sm text-gray-400">Fragmenty nazw (dowolny pasuje, jeden na wiersz)
+                <textarea required maxlength="2000" rows="3" x-model="inventoryForm.patterns" placeholder="elk&#10;elastic"
+                  class="block w-full bg-gray-800 border border-gray-700 rounded p-2 text-white"></textarea>
+              </label>
+              <div class="space-y-3">
+                <label class="block text-sm text-gray-400">Nazwa agenta zawiera
+                  <input maxlength="120" x-model="inventoryForm.agent_name" placeholder="np. produkcja" class="block w-full bg-gray-800 border border-gray-700 rounded p-2 text-white">
+                </label>
+                <label class="block text-sm text-gray-400">Grupa kontenerów
+                  <input maxlength="80" x-model="inventoryForm.group_name" placeholder="Elastic Stack" class="block w-full bg-gray-800 border border-gray-700 rounded p-2 text-white">
+                </label>
+                <label class="block text-sm text-gray-400">Wymagany tag w Compose
+                  <input maxlength="128" x-model="inventoryForm.expected_tag" placeholder="9.3.1" class="block w-full bg-gray-800 border border-gray-700 rounded p-2 text-white">
+                </label>
+              </div>
+              <div class="flex items-center flex-wrap gap-3 md:col-span-2">
+                <label class="text-sm text-gray-300"><input type="checkbox" x-model="inventoryForm.enabled"> Aktywna</label>
+                <button :disabled="inventorySaving" class="bg-blue-600 text-white rounded px-3 py-2 text-sm disabled:opacity-40"
+                  x-text="inventoryForm.id ? 'Zapisz zmiany' : 'Dodaj regułę'"></button>
+                <button type="button" @click="resetInventoryForm()" class="text-gray-400 text-sm">Anuluj</button>
+              </div>
+              <div x-show="inventoryError" x-text="inventoryError" class="text-sm text-red-400 md:col-span-2"></div>
+              <div class="md:col-span-2 rounded-xl border border-gray-700 bg-gray-900 p-4" x-show="inventoryForm.patterns.trim()">
+                <div class="text-sm text-blue-300 mb-2" x-text="'Podgląd dopasowania: ' + inventoryPreview.length + ' kontenerów'"></div>
+                <p class="text-xs text-gray-500 mb-3">Na podstawie ostatnich raportów. Tag jest porównywany dokładnie z deklaracją w Compose.</p>
+                <div class="max-h-48 overflow-auto space-y-2">
+                  <template x-for="match in inventoryPreview" :key="match.key">
+                    <div class="text-xs flex flex-wrap gap-2"><span class="text-gray-300 break-all" x-text="match.server + ' / ' + match.name"></span>
+                      <span x-show="!match.online" class="text-gray-500">offline — ostatnie dane</span>
+                      <span x-show="inventoryForm.expected_tag.trim()" :class="match.valid ? 'text-green-400' : 'text-amber-400'" x-text="match.valid ? 'Tag zgodny' : (match.tag ? 'Tag: ' + match.tag : match.error || 'Brak danych Compose')"></span>
+                    </div>
+                  </template>
+                </div>
+                <p x-show="!inventoryPreview.length" class="text-sm text-gray-500">Brak dopasowań. Sprawdź wybrane pole i fragmenty nazw.</p>
+              </div>
+            </form>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left">
+                <thead class="text-gray-500 border-b border-gray-700"><tr><th class="p-2">Reguła</th><th class="p-2">Dopasowanie</th><th class="p-2">Grupa</th><th class="p-2">Tag Compose</th><th class="p-2">Aktywna</th><th class="p-2">Akcje</th></tr></thead>
+                <tbody><template x-for="rule in inventoryRules" :key="rule.id">
+                  <tr class="border-b border-gray-800 text-gray-300">
+                    <td class="p-2 break-all" x-text="rule.name"></td>
+                    <td class="p-2 whitespace-pre-line break-all" x-text="(rule.field === 'name' ? 'Kontener: ' : 'Obraz: ') + rule.patterns"></td>
+                    <td class="p-2 break-all" x-text="rule.group_name || '—'"></td>
+                    <td class="p-2 break-all" x-text="rule.expected_tag || '—'"></td>
+                    <td class="p-2"><input type="checkbox" :checked="rule.enabled" :disabled="inventorySaving" @change="toggleInventoryRule(rule)" :aria-label="'Aktywna: ' + rule.name"></td>
+                    <td class="p-2 whitespace-nowrap"><button @click="inventoryForm={...rule}; inventoryError=''" class="text-blue-400 mr-3">Edytuj</button><button @click="deleteInventoryRule(rule)" :disabled="inventorySaving" class="text-red-400">Usuń</button></td>
+                  </tr>
+                </template></tbody>
+              </table>
+              <p x-show="!inventoryRules.length" class="text-sm text-gray-500 py-4">Brak reguł.</p>
+            </div>
+          </section>
+
+          <!-- Hasło -->
           <div x-show="settingsTab==='password'">
             <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 max-w-md">
               <div class="text-sm font-semibold text-gray-300 mb-4">Zmień hasło</div>
@@ -446,10 +573,10 @@
             </div>
           </div>
 
-          <!-- ── Użytkownicy ── -->
+          <!-- Użytkownicy -->
           <div x-show="settingsTab==='users'">
             <template x-if="myRole !== 'admin'">
-              <div class="text-gray-500 text-sm py-6">Tylko administrator może zarządzać użytkownikami.</div>
+              <div class="text-gray-500 text-sm py-6">Tylko administrator moŻe zarządzać użytkownikami.</div>
             </template>
             <template x-if="myRole === 'admin'">
               <div>
@@ -517,7 +644,7 @@
                       </div>
                       <button x-show="u.source !== 'env' && u.username !== me"
                         @click="deleteUser(u.username)"
-                        class="text-gray-600 hover:text-red-400 text-sm transition-colors">✕</button>
+                        class="text-gray-600 hover:text-red-400 text-sm transition-colors">✖</button>
                     </div>
                   </template>
                 </div>
@@ -525,7 +652,7 @@
             </template>
           </div>
 
-          <!-- ── Grupy serwerów ── -->
+          <!-- Grupy serwerów -->
           <div x-show="settingsTab==='srvgroups'">
             <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-5">
               <div class="text-sm font-semibold text-gray-400 mb-3">Nowa grupa serwerów</div>
@@ -559,7 +686,7 @@
                             x-text="`${grp.members.length} serwerów`"></span>
                     </div>
                     <button @click="deleteSrvGroup(grp.id)"
-                      class="text-gray-600 hover:text-red-400 text-sm transition-colors">✕ Usuń</button>
+                      class="text-gray-600 hover:text-red-400 text-sm transition-colors">✖ Usuń</button>
                   </div>
                   <!-- Member assignment -->
                   <div class="space-y-1.5">
@@ -570,7 +697,7 @@
                           @change="toggleSrvGroupMember(grp, srv.agent_id)"
                           class="rounded border-gray-600 bg-gray-800 text-blue-500">
                         <span class="text-gray-300"
-                              x-text="srv.info?.agent_name || srv.agent_id"></span>
+                              x-text="srvName(srv)"></span>
                         <span class="text-gray-600 text-xs" x-text="srv.info?.ip || ''"></span>
                       </label>
                     </template>
@@ -581,12 +708,12 @@
                 </div>
               </template>
               <template x-if="serverGroups.length === 0">
-                <div class="text-center py-8 text-gray-700 text-sm">Brak grup. Dodaj pierwszą powyżej.</div>
+                <div class="text-center py-8 text-gray-700 text-sm">Brak grup. Dodaj pierwszą powyŻej.</div>
               </template>
             </div>
           </div>
 
-          <!-- ── Grupy użytkowników ── -->
+          <!-- Grupy użytkowników -->
           <div x-show="settingsTab==='usrgroups'">
             <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-5">
               <div class="text-sm font-semibold text-gray-400 mb-3">Nowa grupa użytkowników</div>
@@ -613,7 +740,7 @@
                             x-text="`${grp.members.length} użytkowników`"></span>
                     </div>
                     <button @click="deleteUsrGroup(grp.id)"
-                      class="text-gray-600 hover:text-red-400 text-sm transition-colors">✕ Usuń</button>
+                      class="text-gray-600 hover:text-red-400 text-sm transition-colors">✖ Usuń</button>
                   </div>
                   <!-- Current members -->
                   <div class="flex flex-wrap gap-2 mb-3" x-show="grp.members.length > 0">
@@ -622,7 +749,7 @@
                                    rounded-full px-2 py-0.5 text-xs text-gray-300">
                         <span x-text="uname"></span>
                         <button @click="removeUsrGroupMember(grp, uname)"
-                          class="text-gray-600 hover:text-red-400 ml-1 leading-none">✕</button>
+                          class="text-gray-600 hover:text-red-400 ml-1 leading-none">✖</button>
                       </span>
                     </template>
                   </div>
@@ -673,10 +800,10 @@
             </div>
           </div>
 
-          <!-- ── LDAP ── -->
+          <!-- LDAP -->
           <div x-show="settingsTab==='ldap'">
             <template x-if="myRole !== 'admin'">
-              <div class="text-gray-500 text-sm py-6">Tylko administrator może konfigurować LDAP.</div>
+              <div class="text-gray-500 text-sm py-6">Tylko administrator moŻe konfigurować LDAP.</div>
             </template>
             <template x-if="myRole === 'admin'">
               <div class="space-y-5">
@@ -796,7 +923,7 @@
                     <button @click="testLdapConnection()" :disabled="ldapForm.testLoading"
                       class="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40
                              text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors whitespace-nowrap">
-                      <span x-show="!ldapForm.testLoading">⚡ Testuj połączenie</span>
+                      <span x-show="!ldapForm.testLoading">Testuj połączenie</span>
                       <span x-show="ldapForm.testLoading">⏳ Testuję...</span>
                     </button>
                   </div>
@@ -826,12 +953,12 @@
             </template>
           </div>
 
-          <!-- ── Sesje ── -->
+          <!-- Sesje -->
           <div x-show="settingsTab==='sessions'">
             <div class="flex items-center justify-between mb-3">
               <div class="text-sm font-semibold text-gray-400">Aktywne sesje</div>
               <button @click="loadSessions()"
-                class="text-xs text-gray-500 hover:text-gray-300 transition-colors">⟳ Odśwież</button>
+                class="text-xs text-gray-500 hover:text-gray-300 transition-colors">Odśwież</button>
             </div>
             <div class="bg-gray-900 border border-gray-800 rounded-2xl overflow-x-auto">
               <table class="w-full text-xs">
@@ -867,7 +994,7 @@
                           :disabled="s.is_current"
                           :class="s.is_current ? 'opacity-30 cursor-default' : 'hover:text-red-300'"
                           class="text-red-500 text-xs px-2 py-1 rounded transition-colors">
-                          Unieważnij
+                          UniewaŻnij
                         </button>
                       </td>
                     </tr>
@@ -882,17 +1009,17 @@
             </div>
           </div>
 
-          <!-- ── Audit log ── -->
+          <!-- Audit log -->
           <div x-show="settingsTab==='auditlog'">
             <template x-if="myRole !== 'admin'">
-              <div class="text-gray-500 text-sm py-6">Tylko administrator może przeglądać audit log.</div>
+              <div class="text-gray-500 text-sm py-6">Tylko administrator moŻe przeglądać audit log.</div>
             </template>
             <template x-if="myRole === 'admin'">
               <div>
                 <div class="flex items-center justify-between mb-3">
                   <div class="text-sm font-semibold text-gray-400">Ostatnie zdarzenia</div>
                   <button @click="loadAuditLogs()"
-                    class="text-xs text-gray-500 hover:text-gray-300 transition-colors">⟳ Odśwież</button>
+                    class="text-xs text-gray-500 hover:text-gray-300 transition-colors">Odśwież</button>
                 </div>
                 <div class="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
                   <table class="w-full text-xs">
@@ -935,7 +1062,7 @@
             </template>
           </div>
 
-          <!-- ── System ── -->
+          <!-- System -->
           <div x-show="settingsTab==='system'">
             <template x-if="myRole !== 'admin'">
               <div class="text-gray-500 text-sm py-6">Tylko administrator.</div>
@@ -947,7 +1074,7 @@
                 <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5">
                   <div class="text-sm font-semibold text-gray-300 mb-1">Token agenta (AGENT_SECRET_TOKEN)</div>
                   <div class="text-xs text-gray-600 mb-4">
-                    Klucz używany przez agentów do uwierzytelnienia. Po rotacji zaktualizuj go w każdym agencie.
+                    Klucz uŻywany przez agentów do uwierzytelnienia. Po rotacji zaktualizuj go w kaŻdym agencie.
                   </div>
 
                   <!-- Current token info -->
@@ -971,7 +1098,7 @@
                   <div x-show="agentTokenNew"
                        class="mb-4 bg-yellow-950/40 border border-yellow-800 rounded-xl p-4">
                     <div class="text-xs text-yellow-400 font-semibold mb-2">
-                      ⚠ Nowy token — zapisz go teraz, nie zostanie pokazany ponownie!
+                      Nowy token — zapisz go teraz, nie zostanie pokazany ponownie!
                     </div>
                     <div class="flex items-center gap-2">
                       <code class="flex-1 bg-gray-950 text-green-400 text-xs px-3 py-2 rounded-lg font-mono break-all"
@@ -979,12 +1106,12 @@
                       <button @click="navigator.clipboard.writeText(agentTokenNew); agentTokenCopied = true; setTimeout(() => agentTokenCopied = false, 2000)"
                         class="bg-gray-700 hover:bg-gray-600 text-xs text-gray-300 px-3 py-2 rounded-lg flex-shrink-0 transition-colors">
                         <span x-show="!agentTokenCopied">Kopiuj</span>
-                        <span x-show="agentTokenCopied" class="text-green-400">✓</span>
+                        <span x-show="agentTokenCopied" class="text-green-400"></span>
                       </button>
                     </div>
                     <div class="text-xs text-yellow-600 mt-2">
                       Zaktualizuj wartość <code class="text-yellow-500">AGENT_SECRET_TOKEN</code>
-                      w każdym agencie i zrestartuj agenty.
+                      w kaŻdym agencie i zrestartuj agenty.
                     </div>
                   </div>
 
@@ -1004,7 +1131,7 @@
                   </div>
                   <button @click="downloadBackup()"
                     class="bg-blue-700 hover:bg-blue-600 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors">
-                    ⬇ Pobierz backup
+                    Pobierz backup
                   </button>
                 </div>
 
@@ -1015,7 +1142,7 @@
         </div>
       </template>
 
-      <!-- ── SEKRETY PAGE ──────────────────────────────────────────────── -->
+      <!-- SEKRETY PAGE -->
       <template x-if="page==='secrets'">
         <div class="max-w-2xl mx-auto">
           <h2 class="text-lg font-bold text-white mb-5 flex items-center gap-2">
@@ -1065,15 +1192,14 @@
                     <button @click="revealSecret(s.id)"
                       class="text-xs text-gray-500 hover:text-yellow-400 transition-colors px-2 py-1
                              bg-gray-800 rounded-lg">
-                      👁 Pokaż
+                      Pokaż
                     </button>
                     <button @click="clipSecret(s.id)"
                       class="text-xs text-gray-500 hover:text-blue-400 transition-colors px-2 py-1
-                             bg-gray-800 rounded-lg">
-                      📋 Kopiuj
+                             bg-gray-800 rounded-lg"> Kopiuj
                     </button>
                     <button @click="deleteSecret(s.id)"
-                      class="text-xs text-gray-700 hover:text-red-400 transition-colors">✕</button>
+                      class="text-xs text-gray-700 hover:text-red-400 transition-colors">✖</button>
                   </div>
                 </div>
                 <!-- Revealed value -->
@@ -1083,7 +1209,7 @@
                     <span class="font-mono text-yellow-300 text-sm break-all"
                           x-text="secretReveal.value"></span>
                     <button @click="secretReveal={id:null,value:''}"
-                      class="text-gray-600 hover:text-gray-400 text-xs flex-shrink-0">✕</button>
+                      class="text-gray-600 hover:text-gray-400 text-xs flex-shrink-0">✖</button>
                   </div>
                 </template>
                 <div class="text-xs text-gray-700 mt-1"
@@ -1094,32 +1220,118 @@
         </div>
       </template>
 
-      <!-- ── WELCOME ─────────────────────────────────────────────────────── -->
+      <!-- FLEET OVERVIEW -->
       <template x-if="!selSrvId && page==='dashboard'">
-        <div class="flex flex-col items-center justify-center h-full text-center select-none">
-          <div class="text-7xl mb-5 opacity-30">🐳</div>
-          <div class="text-xl text-gray-600 font-semibold">DockerMind</div>
-          <div class="text-gray-700 mt-2 text-sm">Wybierz serwer z panelu bocznego.</div>
+        <div class="fleet">
+          <div class="fleet-heading">
+            <div class="fleet-hero-copy"><div class="fleet-eyebrow">DOCKERMIND / CENTRUM DOWODZENIA</div><h1>Twoja infrastruktura<br><span>pod kontrolą.</span></h1><p>Serwery, kontenery, alerty i operacje w jednym przejrzystym miejscu.</p><div class="fleet-hero-actions"><button @click="refreshFleet()" :disabled="fleetRefreshing" class="fleet-btn primary" x-text="fleetRefreshing ? 'Odświeżanie…' : 'Odśwież dane'"></button><button x-show="myRole==='admin'" @click="showCommands()" class="fleet-btn hero-secondary">Wspólne komendy →</button></div></div><div class="fleet-hero-orbit"><div class="orbit-ring ring-one"></div><div class="orbit-ring ring-two"></div><div class="orbit-core">🐳</div><div class="orbit-label label-top">LIVE</div><div class="orbit-label label-bottom" x-text="fleetSummary.online + ' online'"></div></div>
+            <div class="fleet-hero-status"><span class="fleet-pill" :class="{'offline': !wsOk}" x-text="wsOk ? '● Dane na żywo' : '○ Brak połączenia — ostatnie dane'"></span><div class="text-[11px] text-gray-600 mt-2" x-text="fleetRefreshedAt ? 'Odświeżono ' + fleetRefreshedAt.toLocaleTimeString('pl-PL') : 'Synchronizacja automatyczna'"></div></div>
+          </div>
+          <div class="fleet-kpis">
+            <div class="fleet-kpi"><span class="label">Serwery online</span><strong x-text="fleetSummary.online + ' / ' + servers.length"></strong><span class="text-xs" :class="fleetSummary.offline ? 'text-rose-300' : 'text-emerald-300'" x-text="fleetSummary.offline ? fleetSummary.offline + ' serwerów offline' : 'Wszystkie serwery dostępne'"></span></div>
+            <div class="fleet-kpi"><span class="label">Działające kontenery</span><strong x-text="fleetSummary.running"></strong><span class="text-xs text-gray-400" x-text="'z ' + fleetSummary.total + ' na serwerach online'"></span></div>
+            <button @click="fleetFilter = fleetFilter==='issues' ? 'all' : 'issues'" class="fleet-kpi text-left"><span class="label">Wymagają uwagi</span><strong :class="fleetSummary.issues ? 'text-amber-300' : ''" x-text="fleetSummary.issues"></strong><span class="text-xs text-gray-400">Błędy stanu i częste restarty →</span></button>
+            <button @click="page='allalerts'; loadAllAlerts()" class="fleet-kpi text-left"><span class="label">Aktywne alerty</span><strong x-text="alertBadge"></strong><span class="text-xs text-blue-300">Przejdź do alertów →</span></button>
+          </div>
+          <div class="fleet-panel">
+            <div class="fleet-tools">
+              <input x-model="fleetSearch" type="search" placeholder="Szukaj serwera, IP, kontenera…" aria-label="Szukaj w infrastrukturze" class="fleet-input flex-1" style="min-width:160px">
+              <select x-model="fleetFilter" aria-label="Status serwerów" class="fleet-input"><option value="all">Wszystkie stany</option><option value="online">Online</option><option value="offline">Offline</option><option value="issues">Wymagają uwagi</option></select>
+              <select x-model="fleetGroup" aria-label="Grupa serwerów" class="fleet-input"><option value="">Wszystkie grupy</option><template x-for="g in availableFleetGroups" :key="g.id"><option :value="String(g.id)" x-text="g.name"></option></template></select>
+              <span class="text-xs text-gray-500" x-text="fleetServers.length + ' / ' + servers.length"></span>
+            </div>
+            <div class="fleet-row head">
+              <input x-show="myRole==='admin'" type="checkbox" class="fleet-check" :checked="allFleetSelected" x-effect="$el.indeterminate = someFleetSelected" @change="toggleFleetSelection()" aria-label="Wybierz wszystkie widoczne serwery">
+              <span x-show="myRole!=='admin'"></span><span>Serwer</span><span>Kontenery</span><span class="fleet-resource">CPU kontenerów</span><span class="fleet-resource">RAM kontenerów</span><span class="fleet-seen">Ostatni kontakt</span>
+            </div>
+            <template x-for="srv in fleetServers" :key="srv.agent_id">
+              <div class="fleet-row" :class="{'selected': bulkServers[srv.agent_id]}">
+                <input x-show="myRole==='admin'" type="checkbox" class="fleet-check" :checked="!!bulkServers[srv.agent_id]" @change="toggleBulkServer(srv.agent_id)" :aria-label="'Zaznacz ' + srvName(srv)">
+                <span x-show="myRole!=='admin'"></span>
+                <button @click="selectSrv(srv.agent_id)" class="fleet-server"><b x-text="srvName(srv)"></b><small x-text="srv.info?.ip || srv.info?.hostname || srv.agent_id"></small><span class="fleet-pill mt-2" :class="{'offline': !srv.online}" x-text="srv.online ? '● Online' : '○ Offline'"></span></button>
+                <div><span class="text-gray-200" x-text="fleetStats(srv).running + ' / ' + fleetStats(srv).total"></span><div class="text-xs mt-1" :class="fleetStats(srv).issues ? 'text-amber-300' : 'text-gray-500'" x-text="!srv.online ? 'Ostatnie dane' : fleetStats(srv).issues ? fleetStats(srv).issues + ' z problemami' : 'uruchomionych'"></div></div>
+                <div class="fleet-resource"><span x-text="fleetStats(srv).cpu === null ? '—' : fleetStats(srv).cpu.toFixed(1) + '%'"></span><div class="fleet-track"><span :style="'width:' + Math.min(100, fleetStats(srv).cpu || 0) + '%'"></span></div></div>
+                <div class="fleet-resource"><span x-text="fleetStats(srv).ram === null ? '—' : fleetStats(srv).ram.toFixed(1) + '%'"></span><div class="fleet-track"><span style="background:#a78bfa" :style="'width:' + Math.min(100, fleetStats(srv).ram || 0) + '%'"></span></div></div>
+                <div class="fleet-seen text-gray-500 text-xs" x-text="ago(srv.last_seen)"></div>
+              </div>
+            </template>
+            <div x-show="!fleetServers.length" class="fleet-empty" x-text="servers.length ? 'Brak serwerów pasujących do filtrów.' : 'Oczekiwanie na agentów. Połącz pierwszego agenta z centralą, aby zobaczyć jego stan.'"></div>
+          </div>
+          <p class="text-xs text-gray-600 mt-3">CPU i RAM to suma zuŻycia działających kontenerów względem zasobów hosta. Serwery offline pokazują ostatni znany stan kontenerów.</p>
         </div>
       </template>
 
-      <!-- ── SERVER VIEW ─────────────────────────────────────────────────── -->
+      <template x-if="page==='commands' && myRole==='admin'">
+        <div class="fleet">
+          <div class="fleet-heading"><div><h1>Wspólne komendy</h1><p class="fleet-caption">Jedna komenda na wybranych hostach. Osobny wynik dla każdego serwera.</p></div><div class="flex gap-2"><button @click="downloadFleetReport('csv')" class="fleet-btn">📊 DockerMind CSV</button><button @click="downloadFleetReport('pdf')" class="fleet-btn">DockerMind PDF</button><button @click="showFleet()" class="fleet-btn">← Wybór serwerów</button></div></div>
+          <div class="command-layout">
+            <form @submit.prevent="runFleetCommand()" class="fleet-panel p-5 space-y-4">
+              <div class="text-sm font-semibold text-gray-200">Komenda powłoki hosta</div>
+              <div class="flex flex-wrap gap-2"><template x-for="preset in commandPresets" :key="preset.name"><button type="button" @click="commandText=preset.command" :disabled="commandRunning" class="fleet-btn" x-text="preset.name"></button></template><template x-for="template in commandTemplates" :key="template.id"><button type="button" @click="useCommandTemplate(template)" :disabled="commandRunning" class="fleet-btn" x-text="'' + template.name"></button></template></div>
+              <label class="block"><span class="sr-only">Komenda do wykonania</span><textarea x-model="commandText" :disabled="commandRunning" maxlength="16000" required spellcheck="false" placeholder="docker ps" class="command-editor"></textarea></label>
+              <div class="flex flex-wrap items-center gap-3"><label class="text-xs text-gray-400">Limit czasu (s) <input type="number" x-model.number="commandTimeout" :disabled="commandRunning" min="1" max="120" required class="fleet-input w-20 ml-1"></label><label class="text-xs text-gray-300"><input type="checkbox" x-model="commandDryRun" :disabled="commandRunning"> Dry run przed wykonaniem</label><span class="text-xs text-gray-500">Do 4 serwerów równolegle</span></div>
+              <label class="block"><span class="text-xs text-gray-400">Zmienne per serwer (`NAZWA=wartość`, osobne wiersze)</span><textarea x-model="commandVariableText" :disabled="commandRunning" rows="2" placeholder="ENV=production\nPROJECT=my-app" class="command-editor" style="min-height:64px"></textarea></label>
+              <div class="flex flex-wrap gap-2 items-center"><input x-model="commandTemplateName" maxlength="120" placeholder="Nazwa nowego szablonu" class="fleet-input"><button type="button" @click="saveCommandTemplate()" :disabled="!commandTemplateName.trim() || !commandText.trim()" class="fleet-btn">Zapisz jako szablon</button></div>
+              <p class="text-xs text-gray-500">Wykonanie przez /bin/sh, bez interaktywnego wejścia. Przed startem zobaczysz komendę i listę hostów do potwierdzenia.</p>
+              <div x-show="commandError" x-text="commandError" role="alert" class="text-sm text-red-400"></div>
+              <button type="submit" :disabled="commandRunning || !commandReadyCount || !commandText.trim()" class="fleet-btn primary" x-text="commandRunning ? 'Wykonywanie…' : 'Uruchom na ' + commandReadyCount + ' serwerach'"></button>
+            </form>
+            <div class="fleet-panel p-5"><h2 class="font-semibold text-sm text-gray-200 mb-4" x-text="'Wybrane serwery (' + selectedServers.length + ')'"></h2>
+              <p x-show="!selectedServers.length" class="text-sm text-gray-500">Zaznacz checkboxy na dashboardzie lub w panelu bocznym.</p>
+              <div class="space-y-4 max-h-96 overflow-auto"><template x-for="srv in selectedServers" :key="srv.agent_id"><div><div class="text-sm text-gray-300 break-all" x-text="srvName(srv)"></div><div class="text-xs mt-1" :class="commandUnavailable(srv) ? 'text-amber-300' : 'text-green-400'" x-text="commandUnavailable(srv) || 'Gotowy'"></div></div></template></div>
+              <p class="text-xs text-gray-500 mt-4">Niedostępne hosty zostaną pominięte. Zmiana wyboru podczas pracy dotyczy następnego uruchomienia.</p>
+            </div>
+          </div>
+          <div class="fleet-panel p-5 mt-5" x-show="commandHistory.length || commandHealth.length">
+            <div class="grid md:grid-cols-2 gap-6">
+              <div><h2 class="font-semibold text-sm text-gray-200 mb-3">Ostatnie komendy</h2><div class="space-y-2 max-h-48 overflow-auto"><template x-for="row in commandHistory.slice(0,8)" :key="row.id"><button @click="useCommandHistory(row)" class="block w-full text-left bg-gray-900 rounded-lg p-2 hover:bg-gray-800"><div class="text-xs text-gray-300 truncate" x-text="row.command"></div><div class="text-[11px] text-gray-500" x-text="new Date(row.created_at).toLocaleString('pl-PL')"></div></button></template></div></div>
+              <div><h2 class="font-semibold text-sm text-gray-200 mb-3">Zdrowie agentów</h2><div class="space-y-2 max-h-48 overflow-auto"><template x-for="agent in commandHealth" :key="agent.agent_id"><div class="flex justify-between gap-2 text-xs"><span class="text-gray-300 truncate" x-text="agent.name"></span><span :class="agent.command_ready ? 'text-green-400' : agent.online ? 'text-amber-300' : 'text-red-400'" x-text="agent.command_ready ? 'Komendy OK' : agent.online ? 'Wymaga aktualizacji' : 'Offline'"></span></div></template></div></div>
+            </div>
+          </div>
+          <div class="fleet-panel p-5 mt-5">
+            <h2 class="font-semibold text-sm text-gray-200 mb-3">Harmonogram komendy</h2>
+            <div class="flex flex-wrap gap-2 items-center"><input x-model="scheduleName" placeholder="Nazwa" class="fleet-input"><input x-model="scheduleCron" placeholder="Cron: * * * * *" class="fleet-input w-44"><button @click="saveCommandSchedule()" :disabled="!scheduleName.trim() || !commandText.trim() || !selectedServers.length" class="fleet-btn">Zaplanuj dla wybranych</button></div>
+            <div class="space-y-2 mt-3"><template x-for="row in commandSchedules" :key="row.id"><div class="flex justify-between items-center text-xs bg-gray-900 rounded p-2"><span><b x-text="row.name"></b> · <span x-text="row.cron"></span> · <span x-text="row.targets.length + ' serwerów'"></span></span><button @click="deleteCommandSchedule(row.id)" class="text-red-400">Usuń</button></div></template></div>
+          </div>          <section x-show="commandResults.length" class="mt-6" aria-live="polite">
+            <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-lg text-white font-semibold" x-text="'Wyniki: ' + commandCompleted + ' / ' + commandResults.length"></h2><button @click="downloadCommandResults()" :disabled="commandRunning" class="fleet-btn">Pobierz wyniki JSON</button></div>
+            <pre class="text-xs text-gray-400 my-3 whitespace-pre-wrap break-all" x-text="commandSnapshot"></pre>
+            <template x-for="result in commandResults" :key="result.agent_id"><details class="command-result" open>
+              <summary><span class="font-semibold text-gray-200" x-text="result.name"></span><span class="ml-3 text-xs" :class="result.status==='success' ? 'text-green-400' : ['queued','running'].includes(result.status) ? 'text-blue-300' : 'text-amber-300'" x-text="commandStatus(result)"></span><span x-show="result.exit_code !== undefined" class="ml-3 text-xs text-gray-500" x-text="'Kod: ' + result.exit_code + ' · ' + ((result.duration_ms || 0)/1000).toFixed(1) + ' s'"></span></summary>
+              <p x-show="result.error" x-text="result.error" class="text-sm text-amber-300 px-4 pb-3"></p>
+              <pre x-show="result.stdout" x-text="result.stdout" class="text-gray-300"></pre>
+              <pre x-show="result.stderr" x-text="result.stderr" class="text-red-300"></pre>
+              <p x-show="result.status==='success' && !result.stdout && !result.stderr" class="text-xs text-gray-500 px-4 pb-3">Komenda zakończona bez wyjścia tekstowego.</p>
+              <p x-show="result.timed_out" class="text-xs text-amber-300 px-4 py-3">Przekroczono limit czasu. Proces komendy został przerwany.</p>
+              <p x-show="result.truncated" class="text-xs text-amber-300 px-4 py-3">Wynik skrócony do 64 KiB dla każdego strumienia.</p>
+            </details></template>
+          </section>
+        </div>
+      </template>
+
+      <!-- SERVER VIEW -->
       <template x-if="selSrvId && !selCt && page==='dashboard'">
         <div>
           <!-- Server info card -->
           <template x-if="selSrv">
             <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-5">
-              <div class="flex items-start justify-between gap-4">
+              <div class="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <div class="flex items-center gap-3 mb-3">
                     <div :class="srvDot(selSrv)" class="w-3 h-3 rounded-full"></div>
-                    <h2 class="text-xl font-bold text-white"
-                        x-text="selSrv.info?.agent_name || selSrvId"></h2>
+                    <h2 class="text-xl font-bold text-white break-all"
+                        x-text="srvName(selSrv)"></h2>
                     <span x-show="!selSrv.online"
                           class="bg-red-950/60 text-red-400 text-xs px-2 py-0.5 rounded border border-red-900">
                       OFFLINE
                     </span>
                   </div>
+                  <form x-show="myRole==='admin'" @submit.prevent="saveServerName()" class="flex flex-wrap items-end gap-2 mb-3">
+                    <label class="text-xs text-gray-400">Nazwa wyświetlana
+                      <input x-model="serverNameDraft" maxlength="120" :placeholder="selSrv.info?.agent_name || selSrvId"
+                        class="block bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white w-56 max-w-full">
+                    </label>
+                    <button type="submit" :disabled="serverNameSaving" class="text-sm text-blue-400 disabled:opacity-40 px-2 py-1.5">Zapisz nazwę</button>
+                  </form>
                   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                     <div>
                       <div class="text-gray-600 text-xs uppercase mb-0.5">Hostname</div>
@@ -1144,9 +1356,14 @@
                   <div>RAM: <span class="text-gray-400" x-text="fmtB(selSrv.info?.total_memory||0)"></span></div>
                   <div class="mt-1">Ostatnio: <span x-text="ago(selSrv.last_seen)"></span></div>
                   <div class="text-gray-600 text-xs mt-1">v1.1</div>
+                  <button x-show="myRole==='admin' && !selSrv.online" @click="deleteServer(selSrvId)"
+                    :disabled="deletingServerId !== null"
+                    class="mt-3 text-red-400 hover:text-red-300 disabled:opacity-40 text-xs px-3 py-1.5 rounded border border-red-900">
+                    Usuń serwer
+                  </button>
                   <button x-show="myRole==='admin' && selSrv.online" @click="openHostTerminal()"
                     class="mt-3 bg-purple-950/60 border border-purple-900 text-purple-300 text-xs px-3 py-1.5 rounded-lg">
-                    💻 Terminal hosta
+                    Terminal hosta
                   </button>
                 </div>
               </div>
@@ -1158,12 +1375,12 @@
             <button x-show="myRole==='admin'" @click="toggleBulkServer(selSrvId)"
               :class="bulkServers[selSrvId] ? 'bg-purple-900/60 border-purple-700 text-purple-200' : 'bg-gray-800 text-gray-400'"
               class="border border-gray-700 text-xs px-3 py-1.5 rounded-lg transition-colors">
-              ☑ <span x-text="bulkServers[selSrvId] ? 'Serwer wybrany' : 'Wybierz serwer'"></span>
+              <span x-text="bulkServers[selSrvId] ? 'Serwer wybrany' : 'Wybierz serwer'"></span>
             </button>
             <button @click="bulkMode=!bulkMode; bulkSelected={}"
               :class="bulkMode ? 'bg-blue-900/60 border-blue-700 text-blue-300' : 'bg-gray-800 text-gray-400'"
               class="border border-gray-700 text-xs px-3 py-1.5 rounded-lg transition-colors">
-              ☑ Tryb wyboru
+              Tryb wyboru
             </button>
             <template x-if="bulkMode && (Object.keys(bulkSelected).length > 0 || Object.keys(bulkServers).length > 0)">
               <div class="flex items-center gap-2">
@@ -1171,15 +1388,15 @@
                       x-text="`Kontenery: ${Object.keys(bulkSelected).length}, serwery: ${Object.keys(bulkServers).length}`"></span>
                 <button @click="bulkAction('start')" :disabled="bulkLoading"
                   class="bg-green-950/60 border border-green-900 text-green-400
-                         text-xs px-3 py-1.5 rounded-lg disabled:opacity-40">▶ Start</button>
+                         text-xs px-3 py-1.5 rounded-lg disabled:opacity-40">Start</button>
                 <button @click="bulkAction('stop')" :disabled="bulkLoading"
                   class="bg-red-950/60 border border-red-900 text-red-400
-                         text-xs px-3 py-1.5 rounded-lg disabled:opacity-40">⏹ Stop</button>
+                         text-xs px-3 py-1.5 rounded-lg disabled:opacity-40">Stop</button>
                 <button @click="bulkAction('restart')" :disabled="bulkLoading"
                   class="bg-yellow-950/60 border border-yellow-900 text-yellow-400
                          text-xs px-3 py-1.5 rounded-lg disabled:opacity-40">🔄 Restart</button>
                 <button @click="bulkSelected={}; bulkServers={}"
-                  class="text-gray-600 hover:text-gray-400 text-xs">✕ Wyczyść</button>
+                  class="text-gray-600 hover:text-gray-400 text-xs">✖ Wyczyść</button>
               </div>
             </template>
           </div>
@@ -1220,7 +1437,7 @@
           <!-- Comparison charts tile -->
           <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-5">
             <div class="flex items-center justify-between mb-4">
-              <div class="text-sm font-semibold text-gray-400">🔀 Porównanie kontenerów</div>
+              <div class="text-sm font-semibold text-gray-400">Porównanie kontenerów</div>
               <div class="flex items-center gap-2">
                 <template x-for="h in [1,3,6,24]" :key="h">
                   <button @click="cmpHours=h; loadComparison()"
@@ -1235,7 +1452,7 @@
             <div x-show="cmpLoading" class="text-center py-8 text-gray-600">⏳ Pobieranie danych...</div>
             <template x-if="!cmpLoading && cmpData.length === 0">
               <div class="text-center py-6 text-gray-700 text-sm">
-                Kliknij zakres czasu żeby załadować dane. Dane zbierane co ~30s.
+                Kliknij zakres czasu Żeby załadować dane. Dane zbierane co ~30s.
               </div>
             </template>
             <div x-show="!cmpLoading && cmpData.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1255,7 +1472,7 @@
             <div class="bg-gray-900 border border-red-900/50 rounded-2xl p-5 mb-5">
               <div class="flex items-center justify-between mb-3">
                 <div class="text-sm font-semibold text-red-400 flex items-center gap-2">
-                  ⚠ Aktywne alerty
+                  Aktywne alerty
                   <span class="bg-red-900/60 text-red-300 text-xs px-2 py-0.5 rounded-full"
                         x-text="srvAlerts.length"></span>
                 </div>
@@ -1274,7 +1491,7 @@
                       <span class="text-xs text-yellow-400 flex-shrink-0"
                             x-text="ev.metric_label"></span>
                       <span class="text-xs text-gray-500 flex-shrink-0"
-                            x-text="`= ${ev.value.toFixed(1)} (próg: ${ev.threshold})`"></span>
+                            x-text="ev.message || `= ${ev.value.toFixed(1)} (próg: ${ev.threshold})`"></span>
                     </div>
                     <div class="flex items-center gap-2 flex-shrink-0">
                       <span class="text-xs text-gray-700"
@@ -1291,8 +1508,11 @@
           </template>
 
           <!-- Container grid -->
+          <template x-for="group in containerGroups" :key="group.name">
+          <section class="mb-5">
+          <h3 class="text-sm font-semibold text-gray-300 mb-3 break-all" x-text="group.name + ' (' + group.containers.length + ')'"></h3>
           <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            <template x-for="ct in selSrv?.containers || []" :key="ct.name">
+            <template x-for="ct in group.containers" :key="ct.name">
               <div @click="openCt(ct,'overview')"
                    class="bg-gray-900 border border-gray-800 hover:border-gray-600
                           rounded-2xl p-4 transition-colors duration-200 flex flex-col cursor-pointer">
@@ -1309,6 +1529,7 @@
                     <div class="min-w-0">
                       <div class="font-bold text-white truncate text-sm" x-text="ct.name"></div>
                       <div class="text-gray-500 text-xs truncate" x-text="ct.image"></div>
+                      <div class="text-xs text-gray-400 break-all" x-text="'Compose: ' + (ct.compose_tag || ct.compose_error || 'Brak danych')"></div>
                     </div>
                   </div>
                   <div class="flex flex-col items-end gap-1 flex-shrink-0">
@@ -1318,7 +1539,7 @@
                     <template x-if="(ct.restart_count||0) > 3">
                       <span class="bg-red-950/70 text-red-400 border border-red-900
                                    text-xs px-1.5 py-0.5 rounded"
-                            x-text="`↺ ${ct.restart_count}`"></span>
+                            x-text="`${ct.restart_count}`"></span>
                     </template>
                   </div>
                 </div>
@@ -1362,7 +1583,7 @@
                   <button @click.stop="openCt(ct,'analysis')"
                     class="flex-1 bg-blue-950/60 hover:bg-blue-900/60 text-blue-400
                            text-xs py-1.5 rounded-lg transition-colors border border-blue-900/50">
-                    🔍 Analizuj
+                    Analizuj
                   </button>
                 </div>
                 <!-- Container action buttons -->
@@ -1372,14 +1593,14 @@
                     :disabled="ctActionLoading === ct.name+'-start'"
                     class="flex-1 bg-green-950/60 hover:bg-green-900/60 border border-green-900/50
                            text-green-400 text-xs py-1 rounded-lg transition-colors disabled:opacity-40">
-                    ▶ Start
+                    Start
                   </button>
                   <button x-show="ct.status === 'running'"
                     @click.stop="doAction(ct.name,'stop')"
                     :disabled="ctActionLoading === ct.name+'-stop'"
                     class="flex-1 bg-red-950/60 hover:bg-red-900/60 border border-red-900/50
                            text-red-400 text-xs py-1 rounded-lg transition-colors disabled:opacity-40">
-                    ⏹ Stop
+                    Stop
                   </button>
                   <button @click.stop="doAction(ct.name,'restart')"
                     :disabled="ctActionLoading === ct.name+'-restart'"
@@ -1393,16 +1614,18 @@
           </div>
 
           <!-- Empty -->
+          </section>
+          </template>
           <template x-if="(selSrv?.containers||[]).length === 0">
             <div class="text-center py-16 text-gray-700">
-              <div class="text-4xl mb-3">📦</div>
+              <div class="text-4xl mb-3"></div>
               <div>Brak kontenerów lub agent offline.</div>
             </div>
           </template>
         </div>
       </template>
 
-      <!-- ── CONTAINER DETAIL ────────────────────────────────────────────── -->
+      <!-- CONTAINER DETAIL -->
       <template x-if="selCt">
         <div>
           <!-- Breadcrumb + container actions -->
@@ -1410,7 +1633,7 @@
             <div class="flex items-center gap-2 text-sm flex-wrap">
               <button @click="backToServer()"
                 class="text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1">
-                ← <span x-text="selSrv?.info?.agent_name || selSrvId"></span>
+                ← <span x-text="srvName(selSrv)"></span>
               </button>
               <span class="text-gray-700">/</span>
               <span class="font-semibold text-white" x-text="selCt.name"></span>
@@ -1419,7 +1642,7 @@
                     x-text="selCt.status"></span>
               <span x-show="(selCt.restart_count||0) > 0"
                     class="text-xs text-yellow-500">
-                ↺ <span x-text="selCt.restart_count"></span> restartów
+                <span x-text="selCt.restart_count"></span> restartów
               </span>
             </div>
             <!-- Action buttons -->
@@ -1429,14 +1652,14 @@
                 :disabled="!!ctActionLoading"
                 class="bg-green-950/60 hover:bg-green-900/60 border border-green-900
                        text-green-400 text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40">
-                ▶ Start
+                Start
               </button>
               <button x-show="!selCt.isHost && selCt.status === 'running'"
                 @click="doAction(selCt.name,'stop')"
                 :disabled="!!ctActionLoading"
                 class="bg-red-950/60 hover:bg-red-900/60 border border-red-900
                        text-red-400 text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40">
-                ⏹ Stop
+                Stop
               </button>
               <button x-show="!selCt.isHost" @click="doAction(selCt.name,'restart')"
                 :disabled="!!ctActionLoading"
@@ -1462,9 +1685,9 @@
             </template>
           </div>
 
-          <!-- ╔═══════════════════╗ -->
-          <!-- ║   TAB: PRZEGLĄD  ║ -->
-          <!-- ╚═══════════════════╝ -->
+          <!-- -->
+          <!-- TAB: PRZEGLĄD  -->
+          <!-- -->
           <div x-show="curTab==='overview'">
 
             <!-- Metrics grid -->
@@ -1530,13 +1753,14 @@
               <div class="bg-gray-900 border border-gray-800 rounded-xl p-3">
                 <div class="text-xs text-gray-600 uppercase mb-1">Obraz</div>
                 <div class="text-gray-400 text-xs truncate" x-text="selCt.image||'—'"></div>
+                <div class="text-gray-400 text-xs break-all" x-text="'Compose: ' + (selCt.compose_image || selCt.compose_error || 'Brak danych')"></div>
               </div>
             </div>
 
             <!-- Last crash -->
             <template x-if="selCt.last_crash">
               <div class="bg-red-950/40 border border-red-900 rounded-xl p-3 mb-4 text-sm text-red-300">
-                ⚠ Ostatnia awaria: <span class="font-mono" x-text="selCt.last_crash"></span>
+                Ostatnia awaria: <span class="font-mono" x-text="selCt.last_crash"></span>
                 · kod wyjścia: <span class="font-bold" x-text="selCt.exit_code"></span>
               </div>
             </template>
@@ -1544,12 +1768,12 @@
             <!-- Compose inline -->
             <div class="mt-2">
               <div class="flex items-center justify-between mb-3">
-                <div class="text-sm font-semibold text-gray-400">📄 docker-compose.yml</div>
+                <div class="text-sm font-semibold text-gray-400">docker-compose.yml</div>
                 <div class="flex gap-2">
                   <button x-show="compose && !compose.startsWith('Plik') && !compose.startsWith('Błąd') && !cmpEditing"
                     @click="switchTab('compose'); $nextTick(()=>startEditCompose())"
                     class="text-xs text-blue-400 hover:text-blue-300 transition-colors">
-                    ✏️ Edytuj
+                    Edytuj
                   </button>
                   <button @click="switchTab('compose')"
                     class="text-xs text-gray-500 hover:text-gray-300 transition-colors">
@@ -1561,7 +1785,7 @@
               <div x-show="!cmpLoading">
                 <template x-if="!compose || compose.startsWith('Plik') || compose.startsWith('Błąd') || compose.startsWith('Kontener')">
                   <div class="text-gray-600 text-sm py-4 text-center">
-                    📄 <span x-text="compose || 'Plik docker-compose.yml nie został znaleziony.'"></span>
+                    <span x-text="compose || 'Plik docker-compose.yml nie został znaleziony.'"></span>
                   </div>
                 </template>
                 <template x-if="compose && !compose.startsWith('Plik') && !compose.startsWith('Błąd') && !compose.startsWith('Kontener')">
@@ -1573,9 +1797,9 @@
             </div>
           </div>
 
-          <!-- ╔═══════════════╗ -->
-          <!-- ║   TAB: LOGI   ║ -->
-          <!-- ╚═══════════════╝ -->
+          <!-- -->
+          <!-- TAB: LOGI   -->
+          <!-- -->
           <div x-show="curTab==='logs'">
             <!-- Controls -->
             <div class="flex flex-wrap items-center gap-2 mb-3">
@@ -1604,19 +1828,19 @@
                   ? 'bg-yellow-900/50 text-yellow-400 border border-yellow-800'
                   : 'bg-gray-800 text-gray-300'"
                 class="text-sm px-3 py-1.5 rounded-lg transition-colors">
-                <span x-text="logPaused ? '▶ Wznów' : '⏸ Pauza'"></span>
+                <span x-text="logPaused ? 'Wznów' : 'Pauza'"></span>
               </button>
 
               <button @click="dlLogs()"
                 class="bg-gray-800 hover:bg-gray-700 text-gray-300
                        text-sm px-3 py-1.5 rounded-lg transition-colors">
-                💾 Pobierz
+                Pobierz
               </button>
 
               <button @click="logTs=!logTs"
                 :class="logTs ? 'text-blue-400' : 'text-gray-500'"
                 class="bg-gray-800 text-sm px-3 py-1.5 rounded-lg transition-colors">
-                🕐 Czas
+                Czas
               </button>
             </div>
 
@@ -1631,9 +1855,9 @@
             </div>
           </div>
 
-          <!-- ╔══════════════════════╗ -->
-          <!-- ║   TAB: COMPOSE       ║ -->
-          <!-- ╚══════════════════════╝ -->
+          <!-- -->
+          <!-- TAB: COMPOSE       -->
+          <!-- -->
           <div x-show="curTab==='compose'">
             <div x-show="cmpLoading" class="text-center py-10 text-gray-600">
               ⏳ Pobieranie pliku compose...
@@ -1641,7 +1865,7 @@
             <div x-show="!cmpLoading">
               <template x-if="!compose || compose.startsWith('Plik') || compose.startsWith('Błąd') || compose.startsWith('Kontener')">
                 <div class="bg-gray-900 border border-gray-800 rounded-2xl p-10 text-center">
-                  <div class="text-4xl mb-3">📄</div>
+                  <div class="text-4xl mb-3"></div>
                   <div class="text-gray-500" x-text="compose || 'Plik docker-compose.yml nie został znaleziony.'"></div>
                 </div>
               </template>
@@ -1652,28 +1876,27 @@
                     <button x-show="!cmpEditing" @click="startEditCompose()"
                       class="bg-blue-950/60 hover:bg-blue-900/60 border border-blue-900
                              text-blue-400 text-sm px-3 py-1.5 rounded-lg transition-colors">
-                      ✏️ Edytuj
+                      Edytuj
                     </button>
                     <button x-show="cmpEditing" @click="saveCompose()"
                       :disabled="cmpSaving"
                       class="bg-green-950/60 hover:bg-green-900/60 border border-green-900
                              text-green-400 text-sm px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40">
-                      <span x-show="cmpSaving" class="animate-spin inline-block mr-1">⟳</span>
-                      💾 Zapisz na hoście
+                      <span x-show="cmpSaving" class="animate-spin inline-block mr-1"></span>
+                      Zapisz na hoście
                     </button>
                     <button x-show="cmpEditing" @click="cancelEditCompose()"
                       class="bg-gray-800 hover:bg-gray-700 text-gray-400
                              text-sm px-3 py-1.5 rounded-lg transition-colors">
-                      ✕ Anuluj
+                      ✖ Anuluj
                     </button>
                     <button x-show="!cmpEditing" @click="clip(compose)"
                       class="bg-gray-800 hover:bg-gray-700 text-gray-400
-                             text-sm px-3 py-1.5 rounded-lg transition-colors">
-                      📋 Kopiuj
+                             text-sm px-3 py-1.5 rounded-lg transition-colors"> Kopiuj
                     </button>
                     <span x-show="cmpEditing"
                           class="text-xs text-yellow-500 ml-2">
-                      ⚠ Zmiany zostaną zapisane bezpośrednio na hoście
+                      Zmiany zostaną zapisane bezpośrednio na hoście
                     </span>
                   </div>
                   <!-- View mode -->
@@ -1697,9 +1920,9 @@
             </div>
           </div>
 
-          <!-- ╔══════════════════════╗ -->
-          <!-- ║   TAB: ANALIZA AI    ║ -->
-          <!-- ╚══════════════════════╝ -->
+          <!-- -->
+          <!-- TAB: ANALIZA AI    -->
+          <!-- -->
           <div x-show="curTab==='analysis'">
             <!-- Metrics mini-cards -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
@@ -1726,7 +1949,7 @@
             <!-- Last crash -->
             <template x-if="selCt.last_crash">
               <div class="bg-red-950/40 border border-red-900 rounded-xl p-3 mb-4 text-sm text-red-300">
-                ⚠ Ostatnia awaria: <span class="font-mono" x-text="selCt.last_crash"></span>
+                Ostatnia awaria: <span class="font-mono" x-text="selCt.last_crash"></span>
                 · kod wyjścia: <span class="font-bold" x-text="selCt.exit_code"></span>
               </div>
             </template>
@@ -1738,14 +1961,14 @@
                 :class="aiRunning ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-500 active:scale-95'"
                 class="bg-blue-600 text-white font-semibold px-6 py-2.5
                        rounded-xl transition-all flex items-center gap-2">
-                <span x-show="aiRunning" class="inline-block animate-spin">⟳</span>
-                <span x-text="aiRunning ? 'Analiza trwa...' : '🔍 Analizuj z AI'"></span>
+                <span x-show="aiRunning" class="inline-block animate-spin"></span>
+                <span x-text="aiRunning ? 'Analiza trwa...' : 'Analizuj z AI'"></span>
               </button>
 
               <template x-if="aiRisk !== 'NIEZNANY' && aiContent">
                 <span :class="riskBadge(aiRisk)"
                       class="text-sm font-bold px-3 py-1.5 rounded-lg"
-                      x-text="`⚠ Ryzyko: ${aiRisk}`"></span>
+                      x-text="`Ryzyko: ${aiRisk}`"></span>
               </template>
             </div>
 
@@ -1762,12 +1985,12 @@
                   <button @click="dlPdf(currentAnalysisId)"
                     class="bg-blue-950/60 hover:bg-blue-900/60 border border-blue-900
                            text-blue-400 text-sm px-4 py-2 rounded-xl transition-colors">
-                    📄 Pobierz PDF
+                    Pobierz PDF
                   </button>
                   <button @click="openEmailModal(currentAnalysisId)"
                     class="bg-green-950/60 hover:bg-green-900/60 border border-green-900
                            text-green-400 text-sm px-4 py-2 rounded-xl transition-colors">
-                    📧 Wyślij email
+                    Wyślij email
                   </button>
                 </div>
               </div>
@@ -1776,7 +1999,7 @@
             <!-- Saved analyses -->
             <div class="mt-2">
               <div class="flex items-center justify-between mb-3">
-                <div class="text-sm font-semibold text-gray-400">📚 Historia analiz</div>
+                <div class="text-sm font-semibold text-gray-400">Historia analiz</div>
                 <button @click="loadAnalyses()"
                   class="text-xs text-gray-600 hover:text-gray-400 transition-colors">
                   🔄 Odśwież
@@ -1804,13 +2027,13 @@
                       <span class="text-xs text-gray-600" x-text="fmtDt(a.created_at)"></span>
                       <button @click.stop="dlPdf(a.id)"
                         class="text-gray-600 hover:text-blue-400 transition-colors text-xs"
-                        title="Pobierz PDF">📄</button>
+                        title="Pobierz PDF"></button>
                       <button @click.stop="openEmailModal(a.id)"
                         class="text-gray-600 hover:text-green-400 transition-colors text-xs"
-                        title="Wyślij email">📧</button>
+                        title="Wyślij email"></button>
                       <button @click.stop="delAnalysis(a.id)"
-                        class="text-gray-700 hover:text-red-400 transition-colors text-xs">✕</button>
-                      <span class="text-gray-600 text-xs" x-text="a._open ? '▲' : '▼'"></span>
+                        class="text-gray-700 hover:text-red-400 transition-colors text-xs">✖</button>
+                      <span class="text-gray-600 text-xs" x-text="a._open ? '' : ''"></span>
                     </div>
                   </div>
 
@@ -1831,12 +2054,12 @@
             </div>
           </div>
 
-          <!-- ╔══════════════════════╗ -->
-          <!-- ║   TAB: HISTORIA      ║ -->
-          <!-- ╚══════════════════════╝ -->
+          <!-- -->
+          <!-- TAB: HISTORIA      -->
+          <!-- -->
           <div x-show="curTab==='history'">
             <div x-show="histLoading" class="text-center py-10 text-gray-600">
-              ⏳ Ładowanie historii...
+              ⏳ Ĺadowanie historii...
             </div>
             <div x-show="!histLoading">
               <!-- Time-series selector -->
@@ -1853,7 +2076,7 @@
               <!-- Time-series charts -->
               <template x-if="!histMetrics || !histMetrics.points || histMetrics.points.length === 0">
                 <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-4 text-center">
-                  <div class="text-2xl mb-2">📈</div>
+                  <div class="text-2xl mb-2"></div>
                   <div class="text-gray-500 text-sm">Brak danych metrycznych dla tego zakresu.</div>
                   <div class="text-gray-700 text-xs mt-1">Dane są zbierane co ~30 sekund po zalogowaniu agenta.</div>
                 </div>
@@ -1925,9 +2148,9 @@
             </div>
           </div>
 
-          <!-- ╔══════════════════════╗ -->
-          <!-- ║   TAB: ALERTY        ║ -->
-          <!-- ╚══════════════════════╝ -->
+          <!-- -->
+          <!-- TAB: ALERTY        -->
+          <!-- -->
           <div x-show="curTab==='alerts'">
             <div x-show="alertsLoading" class="text-center py-10 text-gray-600">⏳</div>
             <div x-show="!alertsLoading">
@@ -1974,7 +2197,7 @@
               <!-- Active events -->
               <template x-if="alertEvents.filter(e=>e.status==='active').length > 0">
                 <div class="mb-5">
-                  <div class="text-sm font-semibold text-red-400 mb-2">🔴 Aktywne alerty</div>
+                  <div class="text-sm font-semibold text-red-400 mb-2">Aktywne alerty</div>
                   <div class="space-y-2">
                     <template x-for="e in alertEvents.filter(e=>e.status==='active')" :key="e.id">
                       <div class="bg-red-950/40 border border-red-900 rounded-xl px-4 py-3
@@ -1982,7 +2205,7 @@
                         <div class="text-sm">
                           <span class="text-red-300 font-semibold" x-text="e.metric_label"></span>
                           <span class="text-gray-400"> = </span>
-                          <span class="text-white font-mono" x-text="e.value.toFixed(1)"></span>
+                          <span class="text-white font-mono" x-text="e.message || e.value.toFixed(1)"></span>
                           <span class="text-gray-500"> (próg: </span>
                           <span class="text-gray-300 font-mono" x-text="e.threshold"></span>
                           <span class="text-gray-500">)</span>
@@ -1992,7 +2215,7 @@
                         <button @click="ackAlert(e.id)"
                           class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300
                                  px-2 py-1 rounded-lg transition-colors flex-shrink-0">
-                          ✓ Potwierdź
+                          Potwierdź
                         </button>
                       </div>
                     </template>
@@ -2014,7 +2237,7 @@
                            class="w-2 h-2 rounded-full flex-shrink-0"></div>
                       <span class="text-gray-200" x-text="r.metric_label"></span>
                       <template x-if="r.metric !== 'status_stopped'">
-                        <span class="text-gray-500">≥ <span class="font-mono text-gray-300"
+                        <span class="text-gray-500"><span class="font-mono text-gray-300"
                               x-text="r.threshold"></span></span>
                       </template>
                     </div>
@@ -2024,7 +2247,7 @@
                                bg-gray-800 rounded-lg transition-colors"
                         x-text="r.enabled ? 'Wyłącz' : 'Włącz'"></button>
                       <button @click="deleteAlert(r.id)"
-                        class="text-gray-700 hover:text-red-400 text-xs transition-colors">✕</button>
+                        class="text-gray-700 hover:text-red-400 text-xs transition-colors">✖</button>
                     </div>
                   </div>
                 </template>
@@ -2042,7 +2265,7 @@
                     <div :class="e.status==='acknowledged' ? 'bg-yellow-400' : 'bg-gray-500'"
                          class="w-2 h-2 rounded-full flex-shrink-0"></div>
                     <span class="text-gray-400" x-text="e.metric_label"></span>
-                    <span class="font-mono text-gray-300 text-xs" x-text="e.value.toFixed(1)"></span>
+                    <span class="font-mono text-gray-300 text-xs" x-text="e.message || e.value.toFixed(1)"></span>
                     <span :class="e.status==='acknowledged'
                             ? 'text-yellow-400' : 'text-gray-500'"
                           class="text-xs ml-auto" x-text="e.status"></span>
@@ -2054,9 +2277,9 @@
             </div>
           </div>
 
-          <!-- ╔══════════════════════╗ -->
-          <!-- ║   TAB: TERMINAL      ║ -->
-          <!-- ╚══════════════════════╝ -->
+          <!-- -->
+          <!-- TAB: TERMINAL      -->
+          <!-- -->
           <div x-show="curTab==='terminal'">
             <div class="flex items-center gap-3 mb-3">
               <div :class="termReady ? 'bg-green-400' : 'bg-gray-600'"
@@ -2068,12 +2291,19 @@
                        px-3 py-1 rounded-lg transition-colors">
                 🔄 Reconnect
               </button>
+              <button @click="terminalCopy()" :disabled="!termSelection" title="Kopiuj zaznaczenie (Ctrl+Shift+C)"
+                class="text-xs text-gray-400 hover:text-white disabled:opacity-30 bg-gray-800 px-3 py-1 rounded-lg transition-colors"> Kopiuj
+              </button>
+              <button @click="terminalPaste()" :disabled="!termReady" title="Wklej ze schowka (Ctrl+Shift+V)"
+                class="text-xs text-gray-400 hover:text-white disabled:opacity-30 bg-gray-800 px-3 py-1 rounded-lg transition-colors">
+                Wklej
+              </button>
             </div>
             <div id="terminal-container"
                  class="rounded-xl overflow-hidden border border-gray-800"
                  style="height:520px; background:#000;"></div>
             <div class="text-xs text-gray-700 mt-2">
-              Ctrl+C — przerwij · Ctrl+D — wyloguj/zamknij sesję · Strzałki — historia komend
+              Ctrl+C — przerwij · Ctrl+Shift+C — kopiuj zaznaczenie · Ctrl+Shift+V — wklej · Ctrl+D — zamknij sesję · Strzałki — historia
             </div>
           </div>
 
@@ -2084,13 +2314,12 @@
   </div><!-- /main panel -->
 </div><!-- /main app -->
 
-<!-- ═══════════════════════════════════════════════════════════════════════════
-     EMAIL MODAL
-     ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- EMAIL MODAL
+     -->
 <div x-show="emailModal" x-transition
      class="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
   <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
-    <h3 class="text-white font-semibold text-base mb-4">📧 Wyślij raport na email</h3>
+    <h3 class="text-white font-semibold text-base mb-4">Wyślij raport na email</h3>
     <div class="space-y-3">
       <div>
         <label class="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Adres email odbiorcy</label>
@@ -2112,7 +2341,7 @@
         <button @click="sendEmail()" :disabled="emailSending || !emailTo"
           class="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40
                  text-white text-sm font-semibold py-2.5 rounded-lg transition-colors">
-          <span x-show="emailSending" class="animate-spin inline-block mr-1">⟳</span>
+          <span x-show="emailSending" class="animate-spin inline-block mr-1"></span>
           <span x-text="emailSending ? 'Wysyłanie...' : 'Wyślij'"></span>
         </button>
         <button @click="emailModal=false; emailDone=''; emailErr=''"
@@ -2125,9 +2354,8 @@
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════════════════════
-     NOTIFICATION TOAST
-     ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- NOTIFICATION TOAST
+     -->
 <div x-show="notif" x-transition.opacity
      :class="notif?.type === 'error'
        ? 'bg-red-900 border-red-700 text-red-200'
@@ -2137,62 +2365,70 @@
      x-text="notif?.msg">
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════════════════════
-     APPLICATION LOGIC
-     ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- APPLICATION LOGIC
+     -->
 <script>
 function app() {
-  return {
+  return Object.defineProperties({
 
-    /* ── Auth ──────────────────────────────────────────────────────────── */
+    /* Auth */
     loggedIn: false,
     lf: { u: '', p: '', err: '' },
     me: '',
     myRole: 'user',
 
-    /* ── Inactive session timeout ──────────────────────────────────────── */
+    /* Inactive session timeout */
     _inactivityTimer: null,
     _inactivityWarnTimer: null,
     _inactivityWarning: false,
     _INACTIVITY_WARN:   13 * 60 * 1000,   // 13 min → show warning
     _INACTIVITY_LOGOUT: 15 * 60 * 1000,   // 15 min → auto-logout
 
-    /* ── WebSocket ─────────────────────────────────────────────────────── */
+    /* WebSocket */
     ws: null,
     wsOk: false,
     lastSync: null,
 
-    /* ── Servers ───────────────────────────────────────────────────────── */
+    /* Servers */
     servers: [],
+    deletingServerId: null,
+    serverNameDraft: '',
+    serverNameSaving: false,
+    inventoryRules: [],
+    inventoryForm: {id: null, name: '', field: 'image', patterns: '', agent_name: '', group_name: '', expected_tag: '', enabled: true},
+    inventorySaving: false,
+    inventoryError: '',
+    mobileNav: false,
     selSrvId: null,
 
-    /* ── Container detail ──────────────────────────────────────────────── */
+    /* Container detail */
     selCt: null,
     hostTerminal: false,
     curTab: 'logs',
     tabs: [
       { id: 'overview',  lbl: '📊 Przegląd' },
       { id: 'logs',      lbl: '📋 Logi' },
-      { id: 'compose',   lbl: '📄 Compose' },
-      { id: 'analysis',  lbl: '🔍 Analiza AI' },
-      { id: 'history',   lbl: '📈 Historia' },
+      { id: 'compose',   lbl: 'Compose' },
+      { id: 'analysis',  lbl: 'Analiza AI' },
+      { id: 'history',   lbl: 'Historia' },
       { id: 'alerts',    lbl: '🔔 Alerty' },
-      { id: 'terminal',  lbl: '💻 Terminal' },
+      { id: 'terminal',  lbl: 'Terminal' },
     ],
 
-    /* ── Terminal ──────────────────────────────────────────────────────────── */
+    /* Terminal */
     _term: null,       // xterm Terminal instance
     _termFit: null,    // FitAddon instance
     _termWs: null,     // WebSocket to /ws/terminal
     termReady: false,
+    termSelection: '',
 
-    /* ── Comparison charts ─────────────────────────────────────────────────── */
+    /* Comparison charts */
     cmpHours: 3,
     cmpLoading: false,
     cmpData: [],
     _cmpCharts: {},
 
-    /* ── Logs ──────────────────────────────────────────────────────────── */
+    /* Logs */
     logs: '',
     logLoading: false,
     logLines: 200,
@@ -2200,24 +2436,27 @@ function app() {
     logPaused: false,
     logTs: true,
 
-    /* ── Compose ───────────────────────────────────────────────────────── */
+    /* Compose */
     compose: '',
     cmpLoading: false,
     cmpEditing: false,
     cmpEditContent: '',
     cmpSaving: false,
 
-    /* ── AI analysis ───────────────────────────────────────────────────── */
+    /* AI analysis */
     aiRunning: false,
+    aiOnline: null,
+    aiModel: 'AI',
+    aiHealthTimer: null,
     aiContent: '',
     aiRisk: 'NIEZNANY',
     currentAnalysisId: null,
     savedAnalyses: [],
 
-    /* ── Container actions ─────────────────────────────────────────────── */
+    /* Container actions */
     ctActionLoading: null,
 
-    /* ── Email modal ───────────────────────────────────────────────────── */
+    /* Email modal */
     emailModal: false,
     emailAnalysisId: null,
     emailTo: '',
@@ -2225,22 +2464,22 @@ function app() {
     emailDone: '',
     emailErr: '',
 
-    /* ── Notification toast ────────────────────────────────────────────── */
+    /* Notification toast */
     notif: null,
 
-    /* ── Page ──────────────────────────────────────────────────────────── */
+    /* Page */
     page: 'dashboard',    // 'dashboard' | 'secrets' | 'allalerts' | 'settings'
 
-    /* ── Server groups ─────────────────────────────────────────────────── */
+    /* Server groups */
     serverGroups: [],
     expandedGroups: {},   // group_id → bool
 
-    /* ── All-alerts page ───────────────────────────────────────────────── */
+    /* All-alerts page */
     allAlerts: [],
     allAlertsLoading: false,
     allAlertsFilter: '',   // '' | 'active' | 'acknowledged'
 
-    /* ── Settings page ─────────────────────────────────────────────────── */
+    /* Settings page */
     settingsTab: 'password',
     auditLogs: [],
     sessions: [],
@@ -2266,42 +2505,41 @@ function app() {
       testUsername: '', testLoading: false, testResult: '', testOk: false,
     },
 
-    /* ── Server alerts ────────────────────────────────────────────── */
+    /* Server alerts */
     srvAlerts: [],
     srvAlertsLoading: false,
 
-    /* ── Alerty ────────────────────────────────────────────────────────── */
+    /* Alerty */
     alertRules: [],
     alertEvents: [],
     alertsLoading: false,
     alertForm: { metric: 'cpu_percent', threshold: 80, min_duration: 0 },
     alertBadge: 0,
 
-    /* ── Sekrety ───────────────────────────────────────────────────────── */
+    /* Sekrety */
     secrets: [],
     secretsLoading: false,
     secretForm: { name: '', value: '', description: '' },
     secretReveal: { id: null, value: '' },
 
-    /* ── Bulk actions ──────────────────────────────────────────────────── */
+    /* Bulk actions */
     bulkMode: false,
     bulkSelected: {},     // "agentId/containerName" → true
     bulkServers: {},      // agent_id → true; their containers are included in bulk actions
     bulkLoading: false,
 
-    /* ── Metric history ────────────────────────────────────────────────── */
+    /* Metric history */
     histMetrics: null,
     histHours: 24,
 
-    /* ── History ───────────────────────────────────────────────────────── */
+    /* History */
     histData: null,
     histLoading: false,
     _charts: {},
     _srvCharts: {},
 
-    /* ══════════════════════════════════════════════════════════════════════
-       INIT
-       ══════════════════════════════════════════════════════════════════════ */
+    /* INIT
+       */
     async init() {
       // Check if a valid session cookie exists
       try {
@@ -2313,15 +2551,15 @@ function app() {
           this.loggedIn = true;
           this._startInactivityWatch();
           this.connectWS();
+          this.pollAiHealth();
           this.loadAlertBadge();
           this.loadServerGroups();
         }
       } catch {}
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       AUTH
-       ══════════════════════════════════════════════════════════════════════ */
+    /* AUTH
+       */
     async login() {
       this.lf.err = '';
       try {
@@ -2344,6 +2582,7 @@ function app() {
         this.lf.p = '';
         this._startInactivityWatch();
         this.connectWS();
+        this.pollAiHealth();
         this.loadAlertBadge();
         this.loadServerGroups();
       } catch {
@@ -2353,22 +2592,39 @@ function app() {
 
     async logout() {
       this._clearInactivityTimer();
-      try {
-        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-      } catch {}
       this.loggedIn = false;
       this.servers  = [];
       this.selSrvId = null;
       this.selCt    = null;
+      this.bulkServers = {};
+      this.bulkSelected = {};
+      this.commandText = '';
+      this.commandResults = [];
+      this.commandSnapshot = '';
+      this.commandGeneration++;
+      this.commandRunning = false;
       if (this.ws) { this.ws.close(); this.ws = null; }
       this.lf.u   = '';
       this.lf.p   = '';
       this.lf.err = '';
+      if (this.aiHealthTimer) { clearInterval(this.aiHealthTimer); this.aiHealthTimer = null; }
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      } catch {}
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       INACTIVE SESSION TIMEOUT
-       ══════════════════════════════════════════════════════════════════════ */
+    async pollAiHealth() {
+      const check = async () => {
+        try { const d = await this._get('/api/ai-health'); this.aiOnline = d.online === true; this.aiModel = d.model || 'AI'; }
+        catch { this.aiOnline = false; }
+      };
+      await check();
+      if (this.aiHealthTimer) clearInterval(this.aiHealthTimer);
+      this.aiHealthTimer = setInterval(check, 30000);
+    },
+
+    /* INACTIVE SESSION TIMEOUT
+       */
     _startInactivityWatch() {
       const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
       events.forEach(ev => window.addEventListener(ev, () => this._resetInactivityTimer(), { passive: true }));
@@ -2393,9 +2649,8 @@ function app() {
       clearTimeout(this._inactivityTimer);
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       WEBSOCKET
-       ══════════════════════════════════════════════════════════════════════ */
+    /* WEBSOCKET
+       */
     connectWS() {
       if (this.ws && this.ws.readyState < 2) this.ws.close();
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -2418,15 +2673,32 @@ function app() {
       const { event, data } = msg;
 
       if (event === 'init') {
+        this.loadInventoryRules();
+        const ids = new Set((data.agents || []).map(a => a.agent_id));
+        for (const s of [...this.servers]) {
+          if (!ids.has(s.agent_id)) this._removeSrv(s.agent_id);
+        }
         for (const a of data.agents || []) this._upSrv(a);
         this.lastSync = new Date();
       }
       else if (event === 'agent_online') {
-        this._upSrv({ agent_id: data.agent_id, online: true, info: data.info });
+        this._upSrv({ agent_id: data.agent_id, online: true, info: data.info, display_name: data.display_name || '' });
+      }
+      else if (event === 'agent_updated') {
+        const s = this._srv(data.agent_id);
+        if (s) Object.assign(s, data);
+      }
+      else if (event === 'inventory_rules_changed') {
+        this.loadInventoryRules();
+        this.loadAlertBadge();
+        if (this.page === 'allalerts') this.loadAllAlerts();
       }
       else if (event === 'agent_offline') {
         const s = this._srv(data.agent_id);
         if (s) s.online = false;
+      }
+      else if (event === 'agent_removed') {
+        this._removeSrv(data.agent_id);
       }
       else if (event === 'agent_data') {
         const s = this._srv(data.agent_id);
@@ -2481,18 +2753,27 @@ function app() {
       else if (event === 'analysis_error') {
         if (this._isCur(data)) {
           this.aiRunning = false;
-          this.aiContent += `\n\n❌ Błąd analizy: ${data.error}`;
+          this.aiContent += `\n\nBłąd analizy: ${data.error}`;
         }
       }
       else if (event === 'alert_triggered') {
         this.alertBadge++;
+        if (this.page === 'allalerts') this.loadAllAlerts();
         if (this.selSrvId === data.agent_id && !this.selCt) this.loadServerAlerts();
         this._notify(
-          `⚠ Alert: ${data.container_name} — ${data.metric} = ${data.value.toFixed(1)} (próg: ${data.threshold})`,
+          data.message ? `${data.container_name}: ${data.message}` : `Alert: ${data.container_name} — ${data.metric} = ${data.value.toFixed(1)} (próg: ${data.threshold})`,
           'error'
         );
         if (this.selCt?.name === data.container_name && this.selSrvId === data.agent_id) {
           this.loadAlerts();
+        }
+      }
+      else if (event === 'alert_resolved') {
+        this.loadAlertBadge();
+        if (this.page === 'allalerts') this.loadAllAlerts();
+        if (this.selSrvId === data.agent_id) {
+          this.loadServerAlerts();
+          if (this.selCt) this.loadAlerts();
         }
       }
     },
@@ -2501,6 +2782,95 @@ function app() {
       const i = this.servers.findIndex(s => s.agent_id === d.agent_id);
       if (i >= 0) Object.assign(this.servers[i], d);
       else        this.servers.push({ containers: [], online: false, ...d });
+    },
+    resetInventoryForm() {
+      this.inventoryForm = {id: null, name: '', field: 'image', patterns: '', agent_name: '', group_name: '', expected_tag: '', enabled: true};
+      this.inventoryError = '';
+    },
+    async loadInventoryRules() {
+      try { const data = await this._get('/api/inventory-rules'); if (data) this.inventoryRules = data; }
+      catch (e) { this.inventoryError = e.message; }
+    },
+    async saveInventoryRule() {
+      if (this.inventorySaving) return;
+      this.inventorySaving = true;
+      this.inventoryError = '';
+      try {
+        const {id, ...body} = this.inventoryForm;
+        const data = id ? await this._put(`/api/inventory-rules/${id}`, body) : await this._post('/api/inventory-rules', body);
+        if (data) { await this.loadInventoryRules(); this.resetInventoryForm(); this._notify('Reguła zapisana.', 'success'); }
+      } catch (e) { this.inventoryError = e.message; }
+      finally { this.inventorySaving = false; }
+    },
+    async toggleInventoryRule(rule) {
+      this.inventorySaving = true;
+      try { await this._put(`/api/inventory-rules/${rule.id}`, {...rule, enabled: !rule.enabled}); }
+      catch (e) { this.inventoryError = e.message; }
+      finally { await this.loadInventoryRules(); this.inventorySaving = false; }
+    },
+    async deleteInventoryRule(rule) {
+      if (!confirm(`Usunąć regułę "${rule.name}"?`)) return;
+      this.inventorySaving = true;
+      try { await this._del(`/api/inventory-rules/${rule.id}`); await this.loadInventoryRules(); if (this.inventoryForm.id === rule.id) this.resetInventoryForm(); }
+      catch (e) { this.inventoryError = e.message; }
+      finally { this.inventorySaving = false; }
+    },
+    inventoryMatches(rule, ct) {
+      const values = rule.field === 'name' ? [ct.name || ''] : [ct.image || '', ct.compose_image || ''];
+      return rule.patterns.split(/\r?\n/).map(p => p.trim().toLowerCase()).filter(Boolean).some(p => values.some(v => v.toLowerCase().includes(p)));
+    },
+    get containerGroups() {
+      const groups = new Map();
+      for (const ct of this.selSrv?.containers || []) {
+        const names = new Set(this.inventoryRules.filter(r => r.enabled && r.group_name && this.inventoryMatches(r, ct)).map(r => r.group_name));
+        if (!names.size) names.add('Bez grupy');
+        for (const name of names) { if (!groups.has(name)) groups.set(name, []); groups.get(name).push(ct); }
+      }
+      return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([name, containers]) => ({name, containers}));
+    },
+    srvName(server) { return server?.display_name || server?.info?.agent_name || server?.agent_id || ''; },
+    async saveServerName() {
+      if (!this.selSrvId || this.serverNameSaving) return;
+      const id = this.selSrvId;
+      this.serverNameSaving = true;
+      try {
+        const d = await this._put(`/api/servers/${encodeURIComponent(id)}/profile`, {display_name: this.serverNameDraft});
+        if (d) {
+          const s = this._srv(id);
+          if (s) Object.assign(s, d);
+          this._notify('Nazwa zapisana.', 'success');
+        }
+      } catch (e) { this._notify(e.message, 'error'); }
+      finally { this.serverNameSaving = false; }
+    },
+    _removeSrv(id) {
+      this.servers = this.servers.filter(s => s.agent_id !== id);
+      delete this.bulkServers[id];
+      if (this.selSrvId === id) {
+        this.closeTerminal();
+        this.dCharts();
+        this.dSrvCharts();
+        this.selCt = null;
+        this.selSrvId = null;
+        this.bulkSelected = {};
+        this.hostTerminal = false;
+      }
+    },
+    async deleteServer(id) {
+      const server = this._srv(id);
+      if (!server || server.online || this.myRole !== 'admin' || this.deletingServerId) return;
+      if (!confirm(`Usunąć serwer "${this.srvName(server)}" z listy? Historia i przypisania do grup pozostaną zachowane. Jeśli agent połączy się ponownie, wróci na listę.`)) return;
+      this.deletingServerId = id;
+      try {
+        const result = await this._del(`/api/servers/${encodeURIComponent(id)}`);
+        if (!result) return;
+        this._removeSrv(id);
+        this._notify('Serwer usunięty z listy.', 'success');
+      } catch (e) {
+        this._notify(e.message, 'error');
+      } finally {
+        this.deletingServerId = null;
+      }
     },
     _srv(id)    { return this.servers.find(s => s.agent_id === id); },
     _isCur(d)   { return this.selCt?.name === d.container_name && this.selSrvId === d.agent_id; },
@@ -2513,13 +2883,13 @@ function app() {
       return 'NIEZNANY';
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       COMPUTED
-       ══════════════════════════════════════════════════════════════════════ */
+    /* COMPUTED
+       */
     get gs() {
       let sOn=0, sOff=0, cRun=0, cStop=0, cUnhealthy=0;
       for (const s of this.servers) {
         s.online ? sOn++ : sOff++;
+        if (!s.online) continue;
         for (const c of s.containers || []) {
           if (c.status === 'running') cRun++;
           else if (['exited','dead'].includes(c.status)) cStop++;
@@ -2533,7 +2903,7 @@ function app() {
       return [...this.servers].sort((a,b) => {
         if (a.online && !b.online) return -1;
         if (!a.online && b.online) return 1;
-        return (a.info?.agent_name||'').localeCompare(b.info?.agent_name||'');
+        return this.srvName(a).localeCompare(this.srvName(b));
       });
     },
 
@@ -2546,13 +2916,14 @@ function app() {
       return this.logs.split('\n').filter(l => l.toLowerCase().includes(f)).join('\n');
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       NAVIGATION
-       ══════════════════════════════════════════════════════════════════════ */
+    /* NAVIGATION
+       */
     selectSrv(id) {
+      this.mobileNav = false;
       this.closeTerminal();
       this.hostTerminal = false;
       this.selSrvId  = id;
+      this.serverNameDraft = this._srv(id)?.display_name || '';
       this.selCt     = null;
       this.srvAlerts = [];
       this.dCharts();
@@ -2615,10 +2986,9 @@ function app() {
       this.$nextTick(() => this.openTerminal());
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       API HELPERS
-       ══════════════════════════════════════════════════════════════════════ */
-    /* ── CSRF double-submit helper ─────────────────────────────────────────── */
+    /* API HELPERS
+       */
+    /* CSRF double-submit helper */
     _csrf() {
       const c = document.cookie.split(';').map(s => s.trim())
         .find(s => s.startsWith('csrf_token='));
@@ -2627,9 +2997,7 @@ function app() {
 
     async _get(url) {
       const r = await fetch(url, { credentials: 'include' });
-      if (r.status === 401) { this.logout(); return null; }
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
+      return this._apiResponse(r);
     },
 
     async _post(url, body) {
@@ -2639,9 +3007,7 @@ function app() {
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this._csrf() },
         body: JSON.stringify(body),
       });
-      if (r.status === 401) { this.logout(); return null; }
-      if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.detail || `HTTP ${r.status}`); }
-      return r.json();
+      return this._apiResponse(r);
     },
 
     async _del(url) {
@@ -2650,9 +3016,7 @@ function app() {
         credentials: 'include',
         headers: { 'X-CSRF-Token': this._csrf() },
       });
-      if (r.status === 401) { this.logout(); return null; }
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json().catch(() => ({}));
+      return this._apiResponse(r);
     },
 
     async _put(url, body) {
@@ -2662,14 +3026,11 @@ function app() {
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this._csrf() },
         body: JSON.stringify(body),
       });
-      if (r.status === 401) { this.logout(); return null; }
-      if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.detail || `HTTP ${r.status}`); }
-      return r.json();
+      return this._apiResponse(r);
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       DATA LOADING
-       ══════════════════════════════════════════════════════════════════════ */
+    /* DATA LOADING
+       */
     async loadLogs() {
       if (!this.selCt) return;
       this.logLoading = true;
@@ -2716,7 +3077,7 @@ function app() {
     async runAnalysis() {
       if (!this.selCt || this.aiRunning) return;
       this.aiRunning = true;
-      this.aiContent = '⏳ Wysyłanie żądania analizy...\n';
+      this.aiContent = '⏳ Wysyłanie Żądania analizy...\n';
       this.aiRisk    = 'NIEZNANY';
       try {
         await this._post('/api/analyze', {
@@ -2726,7 +3087,7 @@ function app() {
         this.aiContent = '⏳ Analiza AI uruchomiona. Tokeny pojawią się za chwilę...\n\n';
       } catch(e) {
         this.aiRunning = false;
-        this.aiContent = `❌ Błąd uruchomienia analizy: ${e.message}`;
+        this.aiContent = `Błąd uruchomienia analizy: ${e.message}`;
       }
     },
 
@@ -2774,9 +3135,8 @@ function app() {
       finally { this.histLoading = false; }
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       CHARTS
-       ══════════════════════════════════════════════════════════════════════ */
+    /* CHARTS
+       */
     renderCharts() {
       this.dCharts();
 
@@ -2789,8 +3149,7 @@ function app() {
         },
       });
 
-      // ── Time-series charts (from /api/metrics) ────────────────────────
-      const pts = this.histMetrics?.points || [];
+      // Time-series charts (from /api/metrics) const pts = this.histMetrics?.points || [];
       if (pts.length) {
         const tsLbls = pts.map(p => p.t.substring(0,16).replace('T',' '));
 
@@ -2838,8 +3197,7 @@ function app() {
         });
       }
 
-      // ── Event-based charts (from /api/history) ────────────────────────
-      const evts = this.histData?.events || [];
+      // Event-based charts (from /api/history) const evts = this.histData?.events || [];
       if (!evts.length) return;
 
       // Restarts per day
@@ -2945,9 +3303,8 @@ function app() {
         running.map(() => '#10b981'), 'MB');
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       STYLING HELPERS
-       ══════════════════════════════════════════════════════════════════════ */
+    /* STYLING HELPERS
+       */
     srvDot(s) {
       if (!s.online)       return 'bg-red-500';
       if (this.srvWarn(s)) return 'bg-yellow-400';
@@ -2995,9 +3352,8 @@ function app() {
           || 'bg-gray-800 text-gray-400 border-gray-700';
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       FORMATTERS
-       ══════════════════════════════════════════════════════════════════════ */
+    /* FORMATTERS
+       */
     ago(ts) {
       if (!ts) return '—';
       const d = Math.floor(Date.now()/1000 - ts);
@@ -3025,9 +3381,8 @@ function app() {
       return new Date(iso).toLocaleString('pl-PL', { dateStyle:'short', timeStyle:'short' });
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       CONTENT RENDERERS
-       ══════════════════════════════════════════════════════════════════════ */
+    /* CONTENT RENDERERS
+       */
     renderLogs() {
       const txt = this.filteredLogs;
       if (!txt) return '<span class="text-gray-700">Brak logów.</span>';
@@ -3064,7 +3419,7 @@ function app() {
         const safe = raw
           .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         const dataAttr = safe.replace(/"/g,'&quot;');
-        return `<pre><code>${safe}</code><button class="copy-btn" data-copy="${dataAttr}" onclick="navigator.clipboard.writeText(this.dataset.copy)">📋 Kopiuj</button></pre>`;
+        return `<pre><code>${safe}</code><button class="copy-btn" data-copy="${dataAttr}" onclick="navigator.clipboard.writeText(this.dataset.copy)"> Kopiuj</button></pre>`;
       });
 
       // Inline code
@@ -3077,7 +3432,7 @@ function app() {
       h = h.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
 
       // Bullet
-      h = h.replace(/^[•\-\*] (.+)$/gm, '<li>$1</li>');
+      h = h.replace(/^[-\*] (.+)$/gm, '<li>$1</li>');
 
       // Line breaks
       h = h.replace(/\n/g, '<br>');
@@ -3098,9 +3453,8 @@ function app() {
       navigator.clipboard.writeText(txt).catch(() => {});
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       CONTAINER ACTIONS
-       ══════════════════════════════════════════════════════════════════════ */
+    /* CONTAINER ACTIONS
+       */
     async doAction(containerName, action) {
       const labels = { start: 'uruchomiony', stop: 'zatrzymany', restart: 'zrestartowany' };
       if (!confirm(`Kontener "${containerName}" zostanie ${labels[action] || action}. Kontynuować?`)) return;
@@ -3118,9 +3472,8 @@ function app() {
       }
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       COMPOSE EDIT
-       ══════════════════════════════════════════════════════════════════════ */
+    /* COMPOSE EDIT
+       */
     startEditCompose() {
       this.cmpEditContent = this.compose;
       this.cmpEditing = true;
@@ -3149,9 +3502,8 @@ function app() {
       }
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       PDF DOWNLOAD
-       ══════════════════════════════════════════════════════════════════════ */
+    /* PDF DOWNLOAD
+       */
     async dlPdf(analysisId) {
       try {
         const r = await fetch(`/api/analyses/${analysisId}/pdf`, {
@@ -3170,9 +3522,8 @@ function app() {
       }
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       EMAIL MODAL
-       ══════════════════════════════════════════════════════════════════════ */
+    /* EMAIL MODAL
+       */
     openEmailModal(id) {
       this.emailAnalysisId = id;
       this.emailTo   = '';
@@ -3196,17 +3547,15 @@ function app() {
       }
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       NOTIFICATION
-       ══════════════════════════════════════════════════════════════════════ */
+    /* NOTIFICATION
+       */
     _notify(msg, type = 'info') {
       this.notif = { msg, type };
       setTimeout(() => { this.notif = null; }, 4500);
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       ALERTS
-       ══════════════════════════════════════════════════════════════════════ */
+    /* ALERTS
+       */
     async loadServerAlerts() {
       if (!this.selSrvId) return;
       this.srvAlertsLoading = true;
@@ -3296,9 +3645,8 @@ function app() {
       }
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       SECRETS
-       ══════════════════════════════════════════════════════════════════════ */
+    /* SECRETS
+       */
     async loadSecrets() {
       this.secretsLoading = true;
       try {
@@ -3361,9 +3709,8 @@ function app() {
       }
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       TERMINAL
-       ══════════════════════════════════════════════════════════════════════ */
+    /* TERMINAL
+       */
     openTerminal() {
       if (!this.selCt || !this.selSrvId) return;
       this.closeTerminal();
@@ -3382,6 +3729,13 @@ function app() {
       term.loadAddon(fitAddon);
       term.open(el);
       fitAddon.fit();
+      term.onSelectionChange(() => { this.termSelection = term.getSelection() || ''; });
+      term.attachCustomKeyEventHandler(event => {
+        if (event.type !== 'keydown' || !event.ctrlKey || !event.shiftKey) return true;
+        if (event.key.toLowerCase() === 'c') { this.terminalCopy(); return false; }
+        if (event.key.toLowerCase() === 'v') { this.terminalPaste(); return false; }
+        return true;
+      });
 
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const { cols, rows } = term;
@@ -3437,6 +3791,25 @@ function app() {
       this._termWs  = ws;
     },
 
+    async terminalCopy() {
+      const text = this.termSelection || this._term?.getSelection?.() || '';
+      if (!text) { this._notify('Najpierw zaznacz tekst w terminalu.', 'error'); return; }
+      try {
+        await navigator.clipboard.writeText(text);
+        this._notify('Skopiowano zaznaczenie.', 'success');
+      } catch (e) { this._notify('Przeglądarka zablokowała dostęp do schowka.', 'error'); }
+    },
+
+    async terminalPaste() {
+      if (!this._term || !this._termWs || this._termWs.readyState !== WebSocket.OPEN) return;
+      try {
+        const text = await navigator.clipboard.readText();
+        if (!text) return;
+        this._term.focus();
+        this._termWs.send(JSON.stringify({ type: 'input', data: btoa(unescape(encodeURIComponent(text))) }));
+      } catch (e) { this._notify('Zezwól stronie na odczyt schowka, aby wkleić tekst.', 'error'); }
+    },
+
     closeTerminal() {
       if (this._termWs) { try { this._termWs.close(); } catch {} }
       if (this._term)   {
@@ -3447,11 +3820,11 @@ function app() {
       this._termFit = null;
       this._termWs  = null;
       this.termReady = false;
+      this.termSelection = '';
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       COMPARISON CHARTS
-       ══════════════════════════════════════════════════════════════════════ */
+    /* COMPARISON CHARTS
+       */
     async loadComparison() {
       const containers = (this.selSrv?.containers || []).filter(c => c.status === 'running');
       if (!containers.length) return;
@@ -3522,9 +3895,8 @@ function app() {
       })));
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       SERVER GROUPS + COMPUTED
-       ══════════════════════════════════════════════════════════════════════ */
+    /* SERVER GROUPS + COMPUTED
+       */
     get groupedServers() {
       const assigned = new Set(this.serverGroups.flatMap(g => g.members || []));
       const groups = this.serverGroups.map(g => ({
@@ -3593,9 +3965,8 @@ function app() {
       }
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       ALL ALERTS PAGE
-       ══════════════════════════════════════════════════════════════════════ */
+    /* ALL ALERTS PAGE
+       */
     async loadAllAlerts() {
       this.allAlertsLoading = true;
       try {
@@ -3627,10 +3998,10 @@ function app() {
       }
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       SETTINGS PAGE
-       ══════════════════════════════════════════════════════════════════════ */
+    /* SETTINGS PAGE
+       */
     async loadSettings() {
+      this.mobileNav = false;
       await Promise.all([
         this.loadServerGroups(),
         this.loadUserGroups(),
@@ -3650,10 +4021,10 @@ function app() {
     },
 
     async revokeSession(jti) {
-      if (!confirm('Unieważnić tę sesję?')) return;
+      if (!confirm('UniewaŻnić tę sesję?')) return;
       try {
         await this._del(`/api/settings/sessions/${encodeURIComponent(jti)}`);
-        this._notify('Sesja unieważniona.', 'ok');
+        this._notify('Sesja uniewaŻniona.', 'ok');
         await this.loadSessions();
       } catch(e) {
         this._notify(`Błąd: ${e.message}`, 'error');
@@ -3909,7 +4280,7 @@ function app() {
       const username = inputEl.value.trim();
       if (!username) return;
       if (grp.members.includes(username)) {
-        this._notify(`"${username}" już jest w grupie.`, 'error');
+        this._notify(`"${username}" juŻ jest w grupie.`, 'error');
         return;
       }
       const newMembers = [...(grp.members || []), username];
@@ -3954,9 +4325,8 @@ function app() {
       }
     },
 
-    /* ══════════════════════════════════════════════════════════════════════
-       BULK ACTIONS
-       ══════════════════════════════════════════════════════════════════════ */
+    /* BULK ACTIONS
+       */
     toggleBulk(agentId, containerName) {
       const key = `${agentId}/${containerName}`;
       if (this.bulkSelected[key]) {
@@ -4006,9 +4376,19 @@ function app() {
       );
     },
 
-  }; // end return
+  }, Object.getOwnPropertyDescriptors(fleetFeatures())); // preserve computed getters
 } // end app()
 </script>
 
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+

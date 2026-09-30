@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import time
+import threading
 import uuid
 from typing import Any, Optional
 
@@ -67,6 +68,7 @@ class WebSocketManager:
     def __init__(self):
         # agent_id → AgentConnection
         self._agents: dict[str, AgentConnection] = {}
+        self.display_names: dict[str, str] = {}
         # session_id → DashboardSession
         self._dashboards: dict[str, DashboardSession] = {}
         # session_id → WebSocket (terminal browser sessions)
@@ -123,8 +125,19 @@ class WebSocketManager:
         await self.broadcast_to_dashboards("agent_online", {
             "agent_id": agent_id,
             "info": info,
+            "display_name": self.display_names.get(agent_id, ""),
         })
         return agent_id
+
+    async def remove_offline_agent(self, agent_id: str) -> None:
+        async with self._lock:
+            conn = self._agents.get(agent_id)
+            if conn is None:
+                raise KeyError(agent_id)
+            # Wait for disconnect/watchdog cleanup before allowing removal.
+            if conn.ws is not None:
+                raise ValueError("Agent still connected")
+            del self._agents[agent_id]
 
     async def handle_agent_disconnect(self, agent_id: str) -> None:
         async with self._lock:
@@ -192,6 +205,9 @@ class WebSocketManager:
     async def _ingest_data(self, conn: AgentConnection, msg: dict) -> None:
         """Store latest container snapshot and push to dashboards."""
         containers = msg.get("containers", [])
+        from inventory import compose_metadata
+        for container in containers:
+            container.update(compose_metadata(container))
         conn.containers = containers
 
         slim_containers = [
@@ -215,7 +231,7 @@ class WebSocketManager:
                 None, _process_data_sync, agent_id, containers
             )
             for alert in new_alerts:
-                await self.broadcast_to_dashboards("alert_triggered", alert)
+                await self.broadcast_to_dashboards(alert.get("event", "alert_triggered"), alert)
         except Exception as e:
             logger.error("Background data processing error for %s: %s", agent_id, e)
 
@@ -234,6 +250,7 @@ class WebSocketManager:
         agent_id: str,
         action: str,
         params: Optional[dict] = None,
+        timeout: float = REQUEST_TIMEOUT,
     ) -> Any:
         """
         Send an on-demand request to an agent and await its response.
@@ -259,18 +276,24 @@ class WebSocketManager:
         }
         try:
             await conn.ws.send_text(json.dumps(payload, ensure_ascii=False))
+        except asyncio.CancelledError:
+            conn.pending_requests.pop(request_id, None)
+            fut.cancel()
+            raise
         except Exception as e:
             conn.pending_requests.pop(request_id, None)
             raise RuntimeError(f"Błąd wysyłania żądania do agenta: {e}") from e
 
         try:
-            result = await asyncio.wait_for(fut, timeout=REQUEST_TIMEOUT)
+            result = await asyncio.wait_for(fut, timeout=timeout)
             return result
         except asyncio.TimeoutError:
             conn.pending_requests.pop(request_id, None)
             raise RuntimeError(
-                f"Agent '{agent_id}' nie odpowiedział w ciągu {REQUEST_TIMEOUT}s."
+                f"Agent '{agent_id}' nie odpowiedział w ciągu {timeout}s."
             )
+        finally:
+            conn.pending_requests.pop(request_id, None)
 
     # ── Terminal sessions ──────────────────────────────────────────────────────
 
@@ -350,7 +373,7 @@ class WebSocketManager:
 
         # Events that carry an agent_id — need per-session filtering
         _AGENT_EVENTS = {
-            "agent_data", "agent_online", "agent_offline", "alert_triggered",
+            "agent_data", "agent_online", "agent_offline", "agent_removed", "agent_updated", "alert_triggered", "alert_resolved",
             "analysis_start", "analysis_token", "analysis_done", "analysis_error",
         }
         agent_id = data.get("agent_id") if event in _AGENT_EVENTS else None
@@ -395,6 +418,7 @@ class WebSocketManager:
             result.append({
                 "agent_id": agent_id,
                 "online": online,
+                "display_name": self.display_names.get(agent_id, ""),
                 "last_seen": conn.last_seen,
                 "info": conn.info,
                 "container_count": len(conn.containers),
@@ -410,6 +434,7 @@ class WebSocketManager:
         return {
             "agent_id": agent_id,
             "online": online,
+            "display_name": self.display_names.get(agent_id, ""),
             "last_seen": conn.last_seen,
             "info": conn.info,
             "containers": conn.containers,
@@ -477,11 +502,15 @@ def _slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "agent"
 
 
+_PROCESS_LOCK = threading.Lock()
+
+
 def _process_data_sync(agent_id: str, containers: list[dict]) -> list[dict]:
     from models import engine, process_agent_data
+    from inventory import evaluate_inventory
     from sqlmodel import Session
-    with Session(engine) as session:
-        return process_agent_data(session, agent_id, containers)
+    with _PROCESS_LOCK, Session(engine) as session:
+        return process_agent_data(session, agent_id, containers) + evaluate_inventory(session, agent_id, containers)
 
 
 def _cleanup_metrics_sync() -> None:

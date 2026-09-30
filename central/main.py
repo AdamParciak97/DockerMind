@@ -8,6 +8,7 @@ Endpoints:
   Static→  /               (single-file SPA: static/index.html)
 """
 
+import asyncio
 import json
 import logging
 import secrets
@@ -26,6 +27,8 @@ from routers.alerts import router as alerts_router
 from routers.analysis import router as analysis_router
 from routers.auth import router as auth_router
 from routers.metrics import router as metrics_router
+from routers.inventory import router as inventory_router
+from routers.productivity import router as productivity_router
 from routers.secrets import router as secrets_router
 from routers.servers import router as servers_router
 from routers.settings import router as settings_router
@@ -47,9 +50,22 @@ async def lifespan(app: FastAPI):
     warn_insecure_defaults()
     validate_runtime_config()
     create_db()
+    from sqlmodel import Session, select
+    from models import AgentProfile, engine
+    with Session(engine) as session:
+        manager.display_names = {p.agent_id: p.display_name for p in session.exec(select(AgentProfile)).all()}
     manager.start()
+    async def schedule_loop():
+        from routers.productivity import schedule_tick
+        while True:
+            try: await schedule_tick()
+            except Exception as exc: logger.error("Schedule tick failed: %s", exc)
+            await asyncio.sleep(60)
+    schedule_task = asyncio.create_task(schedule_loop())
     yield
     logger.info("DockerMind Central shutting down...")
+    schedule_task.cancel()
+    await asyncio.gather(schedule_task, return_exceptions=True)
     await manager.stop()
 
 
@@ -59,7 +75,8 @@ async def lifespan(app: FastAPI):
 
 _CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline'; "
+    # The bundled standard Alpine build evaluates x-* expressions dynamically.
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
     "style-src 'self' 'unsafe-inline'; "
     "font-src 'self' data:; "
     "img-src 'self' data:; "
@@ -140,6 +157,8 @@ app.include_router(alerts_router)
 app.include_router(metrics_router)
 app.include_router(secrets_router)
 app.include_router(settings_router)
+app.include_router(inventory_router)
+app.include_router(productivity_router)
 
 
 # ── WebSocket: Agent ───────────────────────────────────────────────────────────
@@ -214,6 +233,11 @@ async def dashboard_ws(websocket: WebSocket):
     try:
         # Send current state snapshot to newly connected dashboard (filtered)
         agents = manager.get_agents_filtered(allowed_agents)
+        for agent in agents:
+            agent['containers'] = [
+                {k: v for k, v in container.items() if k not in ('logs', 'compose')}
+                for container in manager.get_agent_containers(agent['agent_id']) or []
+            ]
         await websocket.send_text(json.dumps({
             "event": "init",
             "data": {"agents": agents, "timestamp": time.time()},
@@ -335,6 +359,8 @@ async def spa():
 
 @app.get("/{full_path:path}", include_in_schema=False)
 async def spa_fallback(full_path: str):
+    if full_path == "api" or full_path.startswith(("api/", "ws/")):
+        return JSONResponse(status_code=404, content={"detail": "Nie znaleziono endpointu API. Sprawdź wersję centrali i odśwież aplikację."})
     # All non-API, non-WS routes serve the SPA
     response = FileResponse("static/index.html")
     response.set_cookie(value=secrets.token_hex(32), max_age=86400, **_CSRF_COOKIE_OPTS)

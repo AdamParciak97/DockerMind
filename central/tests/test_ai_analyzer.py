@@ -44,10 +44,11 @@ class _FakeCompletions:
         )
 
 
-sys.modules.setdefault("openai", types.SimpleNamespace(OpenAI=_FakeOpenAI))
-sys.modules.setdefault("models", types.SimpleNamespace(Analysis=_FakeAnalysis))
-
-import ai.analyzer as analyzer
+with patch.dict(sys.modules, {
+    "openai": types.SimpleNamespace(OpenAI=_FakeOpenAI),
+    "models": types.SimpleNamespace(Analysis=_FakeAnalysis),
+}):
+    import ai.analyzer as analyzer
 
 
 class AnalyzerClientAuthTests(unittest.TestCase):

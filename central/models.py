@@ -114,6 +114,7 @@ class AlertEvent(SQLModel, table=True):
     metric: str
     value: float
     threshold: float
+    message: str = Field(default="")
     status: str = Field(default="active")     # active | acknowledged | resolved
     triggered_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
@@ -147,6 +148,57 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+
+
+class AgentProfile(SQLModel, table=True):
+    agent_id: str = Field(primary_key=True)
+    display_name: str = Field(default="")
+
+
+class CommandHistory(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(index=True)
+    command_enc: str
+    command_hash: str = Field(index=True)
+    timeout: int = Field(default=30)
+    targets_json: str = Field(default="[]")
+    status: str = Field(default="completed")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+
+
+class CommandTemplate(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    command_enc: str
+    timeout: int = Field(default=30)
+    allowed_roles: str = Field(default="admin")
+    created_by: str = Field(default="")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class CommandSchedule(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    command_enc: str
+    cron: str
+    targets_json: str = Field(default="[]")
+    enabled: bool = Field(default=True)
+    created_by: str = Field(default="")
+    last_run_at: Optional[datetime] = None
+    next_run_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class InventoryRule(SQLModel, table=True):
+    __table_args__ = {"sqlite_autoincrement": True}
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    field: str = Field(default="image")
+    patterns: str
+    agent_name: str = Field(default="")
+    group_name: str = Field(default="")
+    expected_tag: str = Field(default="")
+    enabled: bool = Field(default=True)
 
 
 class ServerGroup(SQLModel, table=True):
@@ -298,8 +350,10 @@ def _migrate_db() -> None:
     cur = con.cursor()
     # alertrule.min_duration — added in v1.1
     _add_column_if_missing(cur, "alertrule", "min_duration", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(cur, "alertevent", "message", "TEXT NOT NULL DEFAULT ''")
     # user.source — added in v1.2 (distinguish db vs ldap stub users)
     _add_column_if_missing(cur, "user", "source", "TEXT NOT NULL DEFAULT 'db'")
+    _add_column_if_missing(cur, "inventoryrule", "agent_name", "TEXT NOT NULL DEFAULT ''")
     con.commit()
     con.close()
 

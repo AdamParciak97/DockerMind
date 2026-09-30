@@ -18,7 +18,8 @@ RUN pip install --no-cache-dir \
     aiosqlite==0.20.0 \
     fpdf2==2.7.9 \
     ldap3==2.9.1 \
-    "cryptography>=42.0.0"
+    "cryptography>=42.0.0" \
+    PyYAML==6.0.2
 
 WORKDIR /app
 

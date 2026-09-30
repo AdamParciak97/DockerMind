@@ -28,6 +28,7 @@ import websockets
 from dotenv import load_dotenv
 
 import collector
+from commands import HOST_ENV, HOST_SHELL, run_command
 
 load_dotenv()
 
@@ -139,6 +140,7 @@ def build_registration() -> dict:
         "kernel": docker_info.get("kernel", "unknown"),
         "cpus": docker_info.get("cpus", 0),
         "total_memory": docker_info.get("total_memory", 0),
+        "capabilities": {"host_commands": HOST_ACCESS_ENABLED, "command_protocol": 1},
     }
 
 
@@ -214,7 +216,7 @@ async def handle_exec_start(ws, session_id: str, target: str, cols: int, rows: i
 
     try:
         command = (
-            ("nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "--", "/bin/sh")
+            HOST_SHELL
             if is_host else
             ("docker", "exec", "-it", "--", target, "/bin/sh")
         )
@@ -223,6 +225,7 @@ async def handle_exec_start(ws, session_id: str, target: str, cols: int, rows: i
             stdin=slave_fd,
             stdout=slave_fd,
             stderr=slave_fd,
+            env=HOST_ENV if is_host else None,
             preexec_fn=os.setsid,
             close_fds=True,
         )
@@ -280,10 +283,16 @@ async def handle_request(ws, message: dict) -> None:
     request_id = message.get("request_id")
     params = message.get("params", {})
 
-    logger.info("On-demand request: action=%s params=%s", action, params)
+    logger.info("On-demand request: action=%s request_id=%s", action, request_id)
 
     try:
-        if action == "get_logs":
+        if action == "host_command":
+            result = await run_command(params.get('command'), params.get('timeout', 30),
+                                       host_access_enabled=HOST_ACCESS_ENABLED)
+            await send_json(ws, {'type': 'response', 'request_id': request_id,
+                                 'action': action, 'data': result})
+
+        elif action == "get_logs":
             container = params.get("container", "")
             lines = int(params.get("lines", 200))
             result = collector.get_container_logs(container, lines)

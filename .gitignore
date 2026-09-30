@@ -2,6 +2,16 @@
 *.tar
 *.tar.gz
 offline-package/
+dockermind-install-1.5/*.tar
+dockermind-install-1.5/ssl/*
+ssl/*
+!ssl/.gitkeep
+IMG_*.HEIC
+RAPORT.*
+screen.jpeg
+nowe/
+.tmp-heic-reader/
+.tmp-inventory/
 
 # Claude Code
 .claude/
@@ -21,6 +31,7 @@ build/
 !.env.example
 .venv/
 venv/
+.tmp-fleet/
 
 # Baza danych
 *.db

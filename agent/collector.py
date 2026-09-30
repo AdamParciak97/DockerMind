@@ -296,8 +296,10 @@ def collect_container_data(container, with_stats: bool = True) -> dict:
     return {
         "name": container.name,
         "id": container.short_id,
-        "image": container.image.tags[0] if container.image.tags else container.attrs["Config"]["Image"],
+        "image": container.attrs["Config"]["Image"],
+        "image_id": container.attrs.get("Image", ""),
         "status": status,
+        "health": (container.attrs.get("State", {}).get("Health") or {}).get("Status", ""),
         "uptime": _get_container_uptime(container),
         "restart_count": restart_count,
         "exit_code": exit_code,

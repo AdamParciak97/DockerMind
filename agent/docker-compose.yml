@@ -1,7 +1,7 @@
-services:
+﻿services:
   dockermind-agent:
     build: .
-    image: dockermind-agent:1.3
+    image: dockermind-agent:1.5
     container_name: dockermind-agent
     restart: unless-stopped
     # Wymagane przez opcjonalny terminal hosta; faktyczne otwarcie terminala
@@ -28,6 +28,7 @@ services:
     cap_add:
       - DAC_READ_SEARCH
       - SYS_ADMIN
+      - SYS_CHROOT
     read_only: true
     tmpfs:
       - /tmp
@@ -37,3 +38,4 @@ services:
           cpus: "1.0"
           memory: 256M
     pids_limit: 100
+

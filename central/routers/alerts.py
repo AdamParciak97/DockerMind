@@ -159,6 +159,7 @@ _METRIC_LABELS = {
     "mem_percent": "RAM %",
     "restart_count": "Restarty",
     "status_stopped": "Kontener zatrzymany",
+    "image_tag": "Tag obrazu w Compose",
 }
 
 
@@ -185,6 +186,7 @@ def _event_dict(e: AlertEvent) -> dict:
         "metric": e.metric,
         "metric_label": _METRIC_LABELS.get(e.metric, e.metric),
         "value": e.value,
+        "message": e.message,
         "threshold": e.threshold,
         "status": e.status,
         "triggered_at": e.triggered_at.isoformat(),

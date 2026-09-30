@@ -22,6 +22,8 @@ Monitors all Docker containers across your infrastructure. One click triggers a 
 | Funkcja | Opis |
 |---------|------|
 | **Dashboard w czasie rzeczywistym** | CPU, RAM, sieć, dysk — odświeżane co 30s przez WebSocket |
+| **Przegląd infrastruktury** | Liczniki online/offline, zasoby kontenerów, wyszukiwanie i filtry grup oraz stanu |
+| **Wspólne komendy** | Checkboxy serwerów, polecenia na wielu hostach, niezależne wyniki, timeout i eksport JSON |
 | **Terminal w przeglądarce** | `docker exec` przez xterm.js — w pełni offline |
 | **Terminal hosta (opt-in)** | Powłoka systemu hosta dla administratorów — wyłączona domyślnie |
 | **Analiza AI** | Streaming llama3/qwen — diagnoza, ocena ryzyka, komendy naprawcze |
@@ -30,6 +32,8 @@ Monitors all Docker containers across your infrastructure. One click triggers a 
 | **Porównanie kontenerów** | Multi-seria CPU/RAM dla wszystkich kontenerów serwera |
 | **Sekrety** | Szyfrowane AES-256 (Fernet) klucz-wartość w lokalnej bazie |
 | **Grupy serwerów** | Sidebar z collapsible grupami i kolorami |
+| **Nazwy wyświetlane serwerów** | Alias zapisany w bazie, bez zmiany identyfikatora agenta |
+| **Reguły kontenerów** | Automatyczne grupowanie i alerty wymaganego tagu image w Compose |
 | **Grupy użytkowników** | Przypisanie widoczności grup serwerów per-użytkownik |
 | **Historia zdarzeń** | Crash, restart, stop — timeline per kontener |
 | **Eksport PDF** | Raport AI do pliku PDF |
@@ -41,6 +45,81 @@ Monitors all Docker containers across your infrastructure. One click triggers a 
 | **Aktywne sesje** | Lista + unieważnianie sesji per-użytkownik |
 | **Rotacja tokenu agenta** | Generowanie nowego AGENT_SECRET_TOKEN z GUI bez restartu centrali |
 | **Backup bazy danych** | Pobieranie spójnego snapshotu SQLite jednym kliknięciem |
+
+### Dashboard i wspólne komendy
+
+Dashboard otwiera widok wszystkich dostępnych serwerów. Można wyszukiwać po
+nazwie serwera, IP, nazwie kontenera lub obrazu oraz filtrować po grupie i stanie.
+CPU i RAM są sumą zużycia działających kontenerów względem zasobów hosta;
+nie przedstawiają całkowitego obciążenia systemu. Liczniki kontenerów obejmują
+serwery online. Dane serwerów offline są oznaczone jako ostatni znany stan.
+
+Administrator zaznacza checkboxy na dashboardzie lub obok serwerów w panelu
+bocznym. Checkbox w nagłówku zaznacza tylko serwery widoczne po filtrowaniu;
+wybór pozostałych serwerów zostaje zachowany. **Wspólne komendy** otwierają
+edytor polecenia i listę docelowych hostów. Po potwierdzeniu polecenie jest
+wykonywane przez `/bin/sh -c` na maksymalnie czterech serwerach równolegle.
+To polecenia na **hostach**, z ich uprawnieniami, bez interaktywnego wejścia.
+Można wkleić kilka wierszy, używać potoków i komend `docker`.
+
+Każdy host zwraca stdout, stderr, kod zakończenia i czas wykonania. Limit czasu
+wynosi domyślnie 30 sekund (zakres 1–120 s); po jego przekroczeniu agent przerywa
+grupę procesów komendy. Procesy celowo odłączone od grupy oraz działania zlecone
+demonom (np. rozpoczęty restart kontenera) mogą działać dalej. Wynik jest
+ograniczony do 64 KiB na każdy strumień. Błąd jednego hosta nie przerywa pozostałych.
+Brak odpowiedzi oznacza brak potwierdzenia, a nie pewność, że komenda się nie wykonała;
+aplikacja nie ponawia komend automatycznie. Wyniki można pobrać jako JSON.
+Zmiana zaznaczenia podczas pracy dotyczy następnego uruchomienia.
+
+Wymagana jest aktualizacja obrazu **centrali i agentów** oraz ustawienie
+`HOST_ACCESS_ENABLED=true` w konfiguracji wybranych agentów. Zachowaj ustawienia
+`pid: host` i uprawnienia z aktualnego `agent/docker-compose.yml`, w tym
+`SYS_CHROOT` potrzebne do wejścia w system plików hosta. Komendy zaczynają pracę
+w katalogu `/` hosta; nie dziedziczą tokenów ze środowiska agenta. Stary agent, host offline
+lub wyłączony dostęp do hosta są oznaczane i pomijane. Dostęp pozostaje domyślnie
+wyłączony. Centrala dopuszcza do 16 jednoczesnych komend, agent do 4.
+Audit log zapisuje użytkownika, host, hash komendy, limit i status zakończenia;
+treść komend i wyjście nie są zapisywane w bazie. Wylogowanie czyści lokalne wyniki
+i zatrzymuje wysyłanie kolejnych komend z kolejki; już wysłane mogą się dokończyć.
+
+Przebudowanie obrazów z katalogu repozytorium:
+
+```sh
+docker build -t dockermind-web:1.3 ./central
+docker build -t dockermind-agent:1.3 ./agent
+```
+
+Po dostarczeniu obrazów uruchom ponownie centralę i wybrane agenty przez
+`docker compose up -d --force-recreate` w odpowiednich katalogach wdrożenia.
+
+### Nazwy serwerów i reguły kontenerów
+
+Administrator może zmienić pole **Nazwa wyświetlana** w szczegółach serwera.
+Puste pole przywraca nazwę zgłaszaną przez agenta. Alias przetrwa restart centrali;
+nie zmienia `AGENT_NAME`, identyfikatora, historii ani uprawnień serwera.
+
+W **Ustawienia > Reguły kontenerów** można dodawać, edytować, wyłączać i usuwać
+reguły. Dopasowanie działa na fragmentach nazwy kontenera lub obrazu, bez
+rozróżniania wielkości liter. Każdy fragment wpisuje się w osobnym wierszu;
+wystarczy dopasowanie jednego z nich. Reguły obejmują wszystkie serwery.
+Formularz pokazuje pasujące kontenery i zgodność tagów jeszcze przed zapisem.
+Zmiany reguł są od razu sprawdzane na ostatnich raportach serwerów online.
+Nieznany endpoint API zwraca błąd JSON, a nie stronę HTML; interfejs wyświetla
+czytelny komunikat przy niezgodności wersji centrali zamiast błędu `SyntaxError`.
+
+Przykład: fragmenty `elk` oraz `elastic`, grupa `Elastic Stack`, wymagany tag
+`9.3.1`. Pasujące kontenery trafią do grupy widoku. Odczyt `image: elasticsearch:9.2.6`
+z usługi w Compose utworzy alert w panelu; po odczycie `9.3.1` alert zostanie
+rozwiązany. Kontrola działa przy raportach agenta i nie zmienia plików ani
+uruchomionych kontenerów. Alerty nie są automatycznie wysyłane pocztą.
+Pole grupy lub tagu można pozostawić puste, aby używać tylko drugiej funkcji.
+Grupy kontenerów nie zmieniają uprawnień do serwerów.
+
+Tag jest porównywany dokładnie, bez interpretowania zakresów wersji. Obraz bez
+tagu oznacza `latest`. Brak Compose, zmienne typu `${VERSION}`, obraz wskazany
+wyłącznie digestem lub wiele plików Compose oznaczają brak możliwości
+weryfikacji i również powodują alert. Kontrola dotyczy deklaracji w Compose,
+nie potwierdza wdrożenia tej wersji w działającym kontenerze.
 
 ---
 
