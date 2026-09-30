@@ -47,7 +47,9 @@ def _agent_supports_host_commands(info: dict | None) -> bool:
     enabled = capabilities.get("host_commands", False)
     if isinstance(enabled, str):
         enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
-    return protocol >= 1 and enabled is True
+    # Agents from the first 1.5 rollout already implement host_command but did
+    # not advertise command_protocol. Keep them compatible with fleet commands.
+    return enabled is True
 
 
 def _normalized_agent_info(info: dict | None) -> dict:
@@ -61,6 +63,8 @@ def _normalized_agent_info(info: dict | None) -> dict:
     value = capabilities.get("host_commands", False)
     if isinstance(value, str):
         capabilities["host_commands"] = value.strip().lower() in {"1", "true", "yes", "on"}
+    if capabilities["host_commands"] is True and capabilities["command_protocol"] < 1:
+        capabilities["command_protocol"] = 1
     normalized["capabilities"] = capabilities
     return normalized
 
