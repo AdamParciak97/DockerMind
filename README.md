@@ -6,7 +6,20 @@
 ![WebSocket](https://img.shields.io/badge/WebSocket-real--time-FF6B35)
 ![Offline AI](https://img.shields.io/badge/AI-Offline%20%7C%20llama3-8B4FFF)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.3.0-blue)
+![Version](https://img.shields.io/badge/version-1.5.0-blue)
+
+## Changelog
+
+### 1.5.0
+
+- odświeżony dashboard z podsumowaniem floty, filtrami, grupami i wyborem wielu serwerów;
+- wspólne komendy hosta z kolejką, trybem podglądu, timeoutem, wynikami per serwer i historią;
+- reguły kontenerów po nazwie kontenera, obrazu oraz agenta;
+- widoki produktywności, eksport danych, harmonogramy i kontrola zdrowia agentów;
+- poprawione statusy AI i agentów oraz stabilniejsza obsługa protokołu komend;
+- sekcje Pomoc i About z informacją o autorze: Adam Parciak;
+- kopiowanie do i ze schowka w terminalu oraz poprawki polskich znaków w interfejsie;
+- katalog `dockermind-install-1.5` z Compose, README i przykładową konfiguracją.
 
 **AI-powered Docker monitoring platform — fully offline, multi-server architecture.**
 

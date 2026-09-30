@@ -29,7 +29,7 @@ except ImportError:  # lightweight route tests may provide a minimal models modu
     from models import get_allowed_agent_ids, get_session, log_audit
     CommandHistory = None
     encrypt_secret = lambda value: value
-from websocket_manager import manager
+from websocket_manager import agent_supports_host_commands, manager
 
 router = APIRouter(tags=["servers"])
 
@@ -191,10 +191,8 @@ async def host_command(agent_id: str, body: HostCommandBody,
         raise HTTPException(404, 'Serwer nie istnieje.')
     _require_online(agent_id)
     capabilities = agent.get('info', {}).get('capabilities', {})
-    if capabilities.get('command_protocol') != 1:
+    if not agent_supports_host_commands(agent.get('info')):
         raise HTTPException(409, 'Zaktualizuj agenta, aby wykonywać wspólne komendy.')
-    if capabilities.get('host_commands') is not True:
-        raise HTTPException(409, 'Dostęp do hosta wyłączony. Włącz HOST_ACCESS_ENABLED na agencie.')
     if _active_commands >= 16:
         raise HTTPException(429, 'Trwa już 16 komend. Poczekaj na zakończenie.')
     # Do not persist shell text or output: both may contain passwords or tokens.

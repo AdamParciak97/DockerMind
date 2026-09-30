@@ -140,7 +140,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
 app = FastAPI(
     title="DockerMind Central",
-    version="1.2.0",
+    version="1.5.0",
     lifespan=lifespan,
     docs_url=None,       # Wyłączone w produkcji — ujawnia strukturę API
     redoc_url=None,

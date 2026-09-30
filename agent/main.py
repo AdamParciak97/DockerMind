@@ -46,6 +46,7 @@ AGENT_TOKEN: str  = os.getenv("AGENT_TOKEN", "")
 AGENT_NAME: str   = os.getenv("AGENT_NAME", socket.gethostname())
 AGENT_IP: str     = os.getenv("AGENT_IP", "")   # explicit host IP (recommended)
 HOST_ACCESS_ENABLED = os.getenv("HOST_ACCESS_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
+AGENT_VERSION = "1.5.0"
 
 STREAM_INTERVAL = 30          # seconds between full data pushes
 PING_INTERVAL   = 20          # WebSocket ping keepalive
@@ -132,6 +133,7 @@ def build_registration() -> dict:
     docker_info = collector.get_docker_info()
     return {
         "type": "register",
+        "agent_version": AGENT_VERSION,
         "agent_name": AGENT_NAME,
         "hostname": get_host_hostname(),
         "ip": AGENT_IP or get_host_ip(),

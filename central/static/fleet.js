@@ -90,8 +90,11 @@ function fleetFeatures() {
     },
     commandUnavailable(s) {
       if (!s?.online) return 'Serwer offline';
-      if (s.info?.capabilities?.command_protocol !== 1) return 'Wymagana aktualizacja agenta';
-      if (s.info?.capabilities?.host_commands !== true) return 'Dostęp do hosta wyłączony';
+      const caps = s.info?.capabilities || {};
+      const protocol = Number(caps.command_protocol || 0);
+      const hostEnabled = caps.host_commands === true || ['1', 'true', 'yes', 'on'].includes(String(caps.host_commands || '').toLowerCase());
+      if (protocol < 1) return 'Wymagana aktualizacja agenta';
+      if (!hostEnabled) return 'Dostęp do hosta wyłączony';
       return '';
     },
     get commandReadyCount() { return this.selectedServers.filter(s => !this.commandUnavailable(s)).length; },

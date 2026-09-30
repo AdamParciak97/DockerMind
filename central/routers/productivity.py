@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 from auth import get_current_user_info
 from models import (CommandHistory, CommandSchedule, CommandTemplate, decrypt_secret,
                     encrypt_secret, get_allowed_agent_ids, get_session, log_audit)
-from websocket_manager import manager
+from websocket_manager import agent_supports_host_commands, manager
 
 router = APIRouter(tags=['productivity'])
 _CRON_RE = re.compile(r'^[0-9*/?,\- ]{1,80}$')
@@ -65,7 +65,7 @@ async def schedule_tick():
             for agent_id in json.loads(row.targets_json):
                 agent = manager.get_agent(agent_id)
                 caps = (agent or {}).get('info', {}).get('capabilities', {})
-                if not agent or not agent['online'] or caps.get('command_protocol') != 1 or caps.get('host_commands') is not True: continue
+                if not agent or not agent['online'] or not agent_supports_host_commands(agent.get('info')): continue
                 try:
                     await manager.request_from_agent(agent_id, 'host_command', {'command': decrypt_secret(row.command_enc), 'timeout': 120}, timeout=130)
                 except RuntimeError: pass
@@ -111,7 +111,7 @@ async def agent_health(session: Session = Depends(get_session), info: dict = Dep
             'agent_id': agent['agent_id'], 'name': agent.get('display_name') or agent['info'].get('agent_name', agent['agent_id']),
             'online': agent['online'], 'last_seen': agent['last_seen'], 'capabilities': capabilities,
             'protocol': capabilities.get('command_protocol', 0),
-            'command_ready': agent['online'] and capabilities.get('command_protocol') == 1 and capabilities.get('host_commands') is True,
+            'command_ready': agent['online'] and agent_supports_host_commands(agent.get('info')),
             'containers': agent.get('container_count', 0), 'docker_version': agent['info'].get('docker_version', ''),
         })
     return result
@@ -124,7 +124,7 @@ async def command_dry_run(body: DryRunBody, session: Session = Depends(get_sessi
     agents = [a for a in _server_targets(session, info) if not targets or a['agent_id'] in targets]
     return {'command': body.command, 'targets': [{
         'agent_id': a['agent_id'], 'name': a.get('display_name') or a['info'].get('agent_name', a['agent_id']),
-        'online': a['online'], 'reason': '' if a['online'] and a['info'].get('capabilities', {}).get('command_protocol') == 1 and a['info'].get('capabilities', {}).get('host_commands') else 'Agent nie obsługuje komend hosta',
+        'online': a['online'], 'reason': '' if a['online'] and agent_supports_host_commands(a.get('info')) else 'Agent nie obsługuje komend hosta',
     } for a in agents]}
 
 

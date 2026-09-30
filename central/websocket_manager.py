@@ -29,6 +29,19 @@ WATCHDOG_INTERVAL = 15
 REQUEST_TIMEOUT = 30
 
 
+def agent_supports_host_commands(info: dict | None) -> bool:
+    """Normalize capability values from agents across JSON/client versions."""
+    capabilities = (info or {}).get("capabilities") or {}
+    try:
+        protocol = int(capabilities.get("command_protocol", 0))
+    except (TypeError, ValueError):
+        protocol = 0
+    enabled = capabilities.get("host_commands", False)
+    if isinstance(enabled, str):
+        enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
+    return protocol >= 1 and enabled is True
+
+
 class AgentConnection:
     """Holds state for one connected agent."""
 
