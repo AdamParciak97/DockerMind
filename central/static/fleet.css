@@ -57,3 +57,18 @@
 @media(max-width:650px) { .fleet-heading h1 { font-size:23px; } .fleet-kpi { padding:14px; } .fleet-kpi strong { font-size:26px; } .fleet-row { grid-template-columns:20px minmax(0,1fr) 88px; padding:14px; gap:10px; } .fleet-seen { display:none; } .command-layout { grid-template-columns:minmax(0,1fr); } .fleet-tools > * { max-width:100%; } }
 @media(max-width:800px) { .fleet-heading { padding:22px; } .fleet-hero-copy h1 { font-size:30px; } .fleet-hero-orbit { right:4%; opacity:.35; } .fleet-heading > .fleet-hero-status { width:100%; } }
 
+/* Polished administration sections */
+.section-page { padding-bottom:34px; }
+.section-header { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin-bottom:22px; padding:24px 26px; border:1px solid #263f61; border-radius:20px; background:linear-gradient(135deg,rgba(18,38,67,.9),rgba(10,18,32,.96)); box-shadow:0 16px 36px rgba(2,8,23,.2); }
+.section-kicker { color:#60a5fa; font-size:10px; letter-spacing:2px; font-weight:800; margin-bottom:7px; }
+.section-subtitle { color:#94a3b8; font-size:13px; margin-top:6px; }
+.settings-tabs { width:100%; border-color:#263f61; background:linear-gradient(135deg,#101f35,#0b1423); box-shadow:0 12px 26px rgba(2,8,23,.18); }
+.settings-tabs > button { border-radius:10px !important; padding:10px 14px !important; color:#94a3b8 !important; transition:all .18s ease; }
+.settings-tabs > button:hover { background:rgba(59,130,246,.1); color:#dbeafe !important; }
+.settings-tabs > button[class*="bg-gray-700"] { background:linear-gradient(135deg,#2563eb,#1d4ed8) !important; color:#fff !important; box-shadow:0 5px 16px rgba(37,99,235,.25); }
+.section-page .bg-gray-900.border-gray-800 { border-color:#263f61; background:linear-gradient(145deg,#101d31,#0b1423); box-shadow:0 12px 28px rgba(2,8,23,.15); }
+.section-page table thead { background:rgba(15,31,52,.72); }
+.section-page table tbody tr { transition:background .16s ease; }
+.section-page table tbody tr:hover { background:rgba(37,99,235,.08); }
+@media(max-width:650px) { .section-header { padding:19px; align-items:flex-start; flex-direction:column; } .settings-tabs { overflow-x:auto; flex-wrap:nowrap; } .settings-tabs > button { white-space:nowrap; } }
+
