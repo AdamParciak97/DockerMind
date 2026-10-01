@@ -20,3 +20,15 @@ docker compose up -d --force-recreate
 
 Nie dodawaj żadnych wcześniejszych mountów hotfixów. Ta paczka zawiera wszystkie
 zmiany w obrazach.
+
+## Prywatny Harbor
+
+W `.env` centrali ustaw:
+
+```env
+HARBOR_AGENT_IMAGE=harbor.firma.local/dockermind/agent
+HARBOR_AGENT_TAG=1.6.0
+```
+
+Na każdym hoście agenta wykonaj `docker login harbor.firma.local`. Aktualizacja
+z panelu pobierze obraz z Harbor i odtworzy usługę agenta przez Compose.
