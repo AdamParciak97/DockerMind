@@ -18,5 +18,11 @@ Skopiuj `docker-compose.yml`, uzupełnij `.env` i uruchom:
 docker compose up -d --force-recreate
 ```
 
+Pliki konfiguracyjne w tym katalogu:
+
+- `central.env.example` — zmienne centrali; skopiuj jako `.env` obok `docker-compose.yml`;
+- `agent.env.example` — zmienne agenta; skopiuj jako `.env` obok `agent-compose.yml`;
+- `agent-compose.yml` — Compose do uruchomienia agenta na monitorowanym hoście.
+
 Nie dodawaj żadnych wcześniejszych mountów hotfixów. Ta paczka zawiera wszystkie
 zmiany w obrazach.

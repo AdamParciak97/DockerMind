@@ -1,0 +1,25 @@
+services:
+  dockermind-agent:
+    image: dockermind-agent:1.6.0
+    container_name: dockermind-agent
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      HOST_ROOT: /host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /:/host:ro
+      - /proc/1/net:/host-proc-net:ro
+    pid: host
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_READ_SEARCH
+      - SYS_ADMIN
+      - SYS_CHROOT
+    read_only: true
+    tmpfs:
+      - /tmp
