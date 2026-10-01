@@ -57,6 +57,7 @@ Monitors all Docker containers across your infrastructure. One click triggers a 
 | **Audit log** | Pełna historia logowań, akcji, zmian konfiguracji |
 | **Aktywne sesje** | Lista + unieważnianie sesji per-użytkownik |
 | **Rotacja tokenu agenta** | Generowanie nowego AGENT_SECRET_TOKEN z GUI bez restartu centrali |
+| **Aktualizacja agentów z Harbor** | Pull obrazu z Harbor i recreate usługi agenta z poziomu serwera |
 | **Backup bazy danych** | Pobieranie spójnego snapshotu SQLite jednym kliknięciem |
 
 ### Dashboard i wspólne komendy

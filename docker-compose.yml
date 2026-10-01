@@ -11,6 +11,8 @@
       CT_PASSWORD: ${CT_PASSWORD}
       CT_SECRET_KEY: ${CT_SECRET_KEY}
       AGENT_SECRET_TOKEN: ${AGENT_SECRET_TOKEN}
+      HARBOR_AGENT_IMAGE: ${HARBOR_AGENT_IMAGE:-harbor.local/dockermind/agent}
+      HARBOR_AGENT_TAG: ${HARBOR_AGENT_TAG:-1.6.0}
       CT_PORT: 8080
     volumes:
       - dockermind_data:/app/data

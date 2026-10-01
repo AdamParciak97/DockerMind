@@ -38,6 +38,10 @@ class Settings:
     # Agent auth
     AGENT_SECRET_TOKEN: str = os.getenv("AGENT_SECRET_TOKEN", "").strip()
 
+    # Harbor source used by the central agent-update operation.
+    HARBOR_AGENT_IMAGE: str = os.getenv("HARBOR_AGENT_IMAGE", "harbor.local/dockermind/agent").strip()
+    HARBOR_AGENT_TAG: str = os.getenv("HARBOR_AGENT_TAG", "1.6.0").strip()
+
     # Server
     CT_PORT: int = int(os.getenv("CT_PORT", "8080"))
 
