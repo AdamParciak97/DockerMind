@@ -384,6 +384,55 @@ def container_action(container_name: str, action: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
+def list_images() -> list[dict]:
+    """Return a compact inventory of images known to the Docker daemon."""
+    try:
+        client = get_docker_client()
+        result = []
+        for image in client.images.list(all=True):
+            tags = image.tags or []
+            result.append({
+                "id": image.short_id.replace("sha256:", ""),
+                "tags": tags,
+                "size": image.attrs.get("Size", 0),
+                "created": image.attrs.get("Created", ""),
+                "containers": image.attrs.get("Containers", -1),
+            })
+        return sorted(result, key=lambda item: (not item["tags"], item["tags"][0] if item["tags"] else item["id"]))
+    except Exception as e:
+        return [{"error": str(e)}]
+
+
+def image_action(action: str, reference: str = "") -> dict:
+    """Pull/remove/prune images requested by an administrator."""
+    try:
+        client = get_docker_client()
+        if action == "pull":
+            if not reference or len(reference) > 300:
+                return {"success": False, "error": "Podaj poprawną nazwę obrazu."}
+            image = client.images.pull(reference)
+            return {"success": True, "action": action, "image": image.short_id}
+        if action == "remove":
+            if not reference:
+                return {"success": False, "error": "Brak obrazu."}
+            removed = client.images.remove(reference, force=False)
+            return {"success": True, "action": action, "removed": removed}
+        if action == "prune":
+            return {"success": True, "action": action, "pruned": client.images.prune(filters={"dangling": True})}
+        return {"success": False, "error": "Nieznana akcja obrazu."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def inspect_container(container_name: str) -> dict:
+    """Return Docker inspect data for an administrator details panel."""
+    try:
+        c = get_docker_client().containers.get(container_name)
+        return {"success": True, "inspect": c.attrs}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 def _find_compose_path(container) -> Optional[str]:
     """Return the host-absolute path of the compose file for this container, or None."""
     labels = container.labels or {}

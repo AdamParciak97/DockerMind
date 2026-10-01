@@ -29,6 +29,7 @@ from routers.auth import router as auth_router
 from routers.metrics import router as metrics_router
 from routers.inventory import router as inventory_router
 from routers.productivity import router as productivity_router
+from routers.admin import router as admin_router
 from routers.secrets import router as secrets_router
 from routers.servers import router as servers_router
 from routers.settings import router as settings_router
@@ -159,6 +160,7 @@ app.include_router(secrets_router)
 app.include_router(settings_router)
 app.include_router(inventory_router)
 app.include_router(productivity_router)
+app.include_router(admin_router)
 
 
 # ── WebSocket: Agent ───────────────────────────────────────────────────────────

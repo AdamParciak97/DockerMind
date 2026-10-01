@@ -347,6 +347,25 @@ async def handle_request(ws, message: dict) -> None:
                 "data": result,
             })
 
+        elif action == "list_images":
+            await send_json(ws, {"type": "response", "request_id": request_id,
+                                 "action": action, "data": collector.list_images()})
+
+        elif action == "image_action":
+            image_action_name = params.get("action", "")
+            reference = params.get("reference", "")
+            result = collector.image_action(image_action_name, reference)
+            await send_json(ws, {"type": "response", "request_id": request_id,
+                                 "action": action, "data": result})
+
+        elif action == "inspect_container":
+            container = params.get("container", "")
+            if not _CONTAINER_RE.match(container):
+                raise ValueError("Nieprawidłowa nazwa kontenera.")
+            result = collector.inspect_container(container)
+            await send_json(ws, {"type": "response", "request_id": request_id,
+                                 "action": action, "data": result})
+
         elif action == "save_compose":
             container = params.get("container", "")
             content = params.get("content", "")
