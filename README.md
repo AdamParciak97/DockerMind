@@ -57,7 +57,6 @@ Monitors all Docker containers across your infrastructure. One click triggers a 
 | **Audit log** | Pełna historia logowań, akcji, zmian konfiguracji |
 | **Aktywne sesje** | Lista + unieważnianie sesji per-użytkownik |
 | **Rotacja tokenu agenta** | Generowanie nowego AGENT_SECRET_TOKEN z GUI bez restartu centrali |
-| **Aktualizacja agentów z Harbor** | Pull obrazu z Harbor i recreate usługi agenta z poziomu serwera |
 | **Backup bazy danych** | Pobieranie spójnego snapshotu SQLite jednym kliknięciem |
 
 ### Dashboard i wspólne komendy
@@ -103,26 +102,6 @@ docker build -t dockermind-web:1.3 ./central
 docker build -t dockermind-agent:1.3 ./agent
 ```
 
-### Aktualizacja agentów z prywatnego Harbor
-
-Aktualizacja agenta z widoku serwera pobiera obraz z prywatnego rejestru Harbor,
-a następnie odtwarza usługę agenta w jej projekcie Compose. Ustaw w `.env` centrali:
-
-```env
-HARBOR_AGENT_IMAGE=harbor.firma.local/dockermind/agent
-HARBOR_AGENT_TAG=1.6.0
-```
-
-Na każdym hoście agenta wykonaj jednorazowo logowanie do prywatnego rejestru:
-
-```sh
-docker login harbor.firma.local
-```
-
-Docker zapisze poświadczenia lokalnie na hoście. Przycisk **Aktualizuj agenta**
-wymaga `HOST_ACCESS_ENABLED=true`, pobiera wskazany tag przez `docker pull`,
-podmienia lokalny tag obrazu używany przez Compose i odtwarza usługę. Hasło Harbor
-nie trafia do centrali, WebSocketu ani dziennika audytu.
 
 Po dostarczeniu obrazów uruchom ponownie centralę i wybrane agenty przez
 `docker compose up -d --force-recreate` w odpowiednich katalogach wdrożenia.

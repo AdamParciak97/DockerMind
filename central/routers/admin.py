@@ -1,7 +1,6 @@
 """Administrator operations: image inventory, container inspection and task center."""
 import json
 import time
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -10,7 +9,6 @@ from sqlmodel import Session, select
 from auth import get_current_user_info
 from models import CommandHistory, get_allowed_agent_ids, get_session, log_audit
 from websocket_manager import manager
-from config import settings
 
 router = APIRouter(tags=["admin"])
 
@@ -33,13 +31,6 @@ def _agent(session: Session, info: dict, agent_id: str) -> dict:
 class ImageAction(BaseModel):
     action: str = Field(pattern=r"^(pull|remove|prune)$")
     reference: str = Field(default="", max_length=300)
-
-
-class AgentUpdate(BaseModel):
-    compose_dir: str = Field(default="/etc/dockermind", min_length=1, max_length=240, pattern=r"^[A-Za-z0-9_./:@-]+$")
-    service: str = Field(default="dockermind-agent", pattern=r"^[a-zA-Z0-9_.-]+$")
-    image: Optional[str] = Field(default=None, max_length=240, pattern=r"^[A-Za-z0-9._/@:-]+$")
-    tag: Optional[str] = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
 
 
 @router.get("/api/servers/{agent_id}/images")
@@ -74,31 +65,6 @@ async def inspect_container(agent_id: str, container_name: str, session: Session
         return await manager.request_from_agent(agent_id, "inspect_container", {"container": container_name})
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
-
-
-@router.post("/api/servers/{agent_id}/agent-update")
-async def update_agent(agent_id: str, body: AgentUpdate, session: Session = Depends(get_session), info: dict = Depends(get_current_user_info)):
-    """Pull and recreate the agent service from its host Compose project."""
-    _admin(info)
-    agent = _agent(session, info, agent_id)
-    capabilities = agent.get("info", {}).get("capabilities", {})
-    if capabilities.get("host_commands") is not True:
-        raise HTTPException(status_code=409, detail="Włącz HOST_ACCESS_ENABLED na agencie.")
-    image = body.image or settings.HARBOR_AGENT_IMAGE
-    tag = body.tag or settings.HARBOR_AGENT_TAG
-    remote_image = f"{image}:{tag}"
-    # Pull from Harbor, retag to the image name already used by the host Compose
-    # project, then recreate the agent. Harbor credentials stay in the host's
-    # Docker credential store and never enter the dashboard or audit log.
-    command = (f"cd {body.compose_dir} && docker pull {remote_image} && "
-               f"docker tag {remote_image} $(docker inspect -f '{{{{.Config.Image}}}}' dockermind-agent) && "
-               f"docker compose up -d --force-recreate --no-build {body.service}")
-    try:
-        result = await manager.request_from_agent(agent_id, "host_command", {"command": command, "timeout": 120}, timeout=130)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
-    log_audit(session, "agent_update", username=info["username"], detail=json.dumps({"agent_id": agent_id, "compose_dir": body.compose_dir, "service": body.service, "image": remote_image}))
-    return {"queued": True, "agent_id": agent_id, "image": remote_image, "result": result}
 
 
 @router.get("/api/tasks")
