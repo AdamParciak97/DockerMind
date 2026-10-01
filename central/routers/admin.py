@@ -34,6 +34,11 @@ class ImageAction(BaseModel):
     reference: str = Field(default="", max_length=300)
 
 
+class AgentUpdate(BaseModel):
+    compose_dir: str = Field(default="/etc/dockermind", min_length=1, max_length=240, pattern=r"^[A-Za-z0-9_./:@-]+$")
+    service: str = Field(default="dockermind-agent", pattern=r"^[a-zA-Z0-9_.-]+$")
+
+
 @router.get("/api/servers/{agent_id}/images")
 async def images(agent_id: str, session: Session = Depends(get_session), info: dict = Depends(get_current_user_info)):
     _admin(info)
@@ -66,6 +71,23 @@ async def inspect_container(agent_id: str, container_name: str, session: Session
         return await manager.request_from_agent(agent_id, "inspect_container", {"container": container_name})
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+
+
+@router.post("/api/servers/{agent_id}/agent-update")
+async def update_agent(agent_id: str, body: AgentUpdate, session: Session = Depends(get_session), info: dict = Depends(get_current_user_info)):
+    """Pull and recreate the agent service from its host Compose project."""
+    _admin(info)
+    agent = _agent(session, info, agent_id)
+    capabilities = agent.get("info", {}).get("capabilities", {})
+    if capabilities.get("host_commands") is not True:
+        raise HTTPException(status_code=409, detail="Włącz HOST_ACCESS_ENABLED na agencie.")
+    command = f"cd {body.compose_dir} && docker compose pull {body.service} && docker compose up -d --force-recreate {body.service}"
+    try:
+        result = await manager.request_from_agent(agent_id, "host_command", {"command": command, "timeout": 120}, timeout=130)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    log_audit(session, "agent_update", username=info["username"], detail=json.dumps({"agent_id": agent_id, "compose_dir": body.compose_dir, "service": body.service}))
+    return {"queued": True, "agent_id": agent_id, "result": result}
 
 
 @router.get("/api/tasks")

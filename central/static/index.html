@@ -1388,6 +1388,10 @@
                     class="mt-3 ml-1 bg-blue-950/60 border border-blue-900 text-blue-300 text-xs px-3 py-1.5 rounded-lg">
                     Obrazy Docker
                   </button>
+                  <button x-show="myRole==='admin' && selSrv.online" @click="updateAgent(selSrvId)"
+                    class="mt-3 ml-1 bg-amber-950/60 border border-amber-900 text-amber-300 text-xs px-3 py-1.5 rounded-lg">
+                    Aktualizuj agenta
+                  </button>
                 </div>
               </div>
             </div>
@@ -4069,6 +4073,15 @@ function app() {
     async imageAction(action, reference) {
       try { await this._post(`/api/servers/${encodeURIComponent(this.imagesAgentId)}/images/action`, {action, reference: reference || ''}); this._notify('Operacja obrazu zakończona.', 'success'); await this.loadImages(this.imagesAgentId); }
       catch (e) { this._notify(`Błąd obrazu: ${e.message}`, 'error'); }
+    },
+    async updateAgent(agentId) {
+      const composeDir = prompt('Katalog projektu Compose agenta:', '/etc/dockermind');
+      if (composeDir === null) return;
+      if (!confirm('Centrala pobierze obraz i odtworzy kontener agenta. Kontynuować?')) return;
+      try {
+        await this._post(`/api/servers/${encodeURIComponent(agentId)}/agent-update`, {compose_dir: composeDir, service: 'dockermind-agent'});
+        this._notify('Aktualizacja agenta została uruchomiona. Agent po chwili połączy się ponownie.', 'success');
+      } catch (e) { this._notify(`Błąd aktualizacji agenta: ${e.message}`, 'error'); }
     },
 
     async loadSessions() {
