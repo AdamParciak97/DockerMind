@@ -15,7 +15,6 @@
     volumes:
       - dockermind_data:/app/data
       - ./certs:/app/certs:ro
-      - ./hotfix/auth.py:/app/auth.py:ro
     expose:
       - "8080"
     security_opt:
@@ -79,4 +78,5 @@
 
 volumes:
   dockermind_data: {}
+
 

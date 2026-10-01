@@ -1,7 +1,7 @@
 ﻿services:
   dockermind-agent:
     build: .
-    image: dockermind-agent:1.5
+    image: dockermind-agent:1.6.0
     container_name: dockermind-agent
     restart: unless-stopped
     # Wymagane przez opcjonalny terminal hosta; faktyczne otwarcie terminala
